@@ -1,0 +1,27 @@
+agent:
+  model: claude-sonnet-4-5
+  temperature: 0.0
+  max_tokens: 4096
+  max_steps: 10
+
+tools:
+  web_fetch:
+    enabled: true
+    max_response_bytes: 8192
+    timeout_seconds: 10
+  read_doc:
+    enabled: true
+    corpus_path: agents/reference/corpus/
+  send_message:
+    enabled: true
+    recipient_allowlist: []  # empty = deny all; ["*"] = allow all
+
+detector:
+  rules_enabled: true
+  classifier_enabled: false  # requires API call
+  classifier_threshold: 0.7
+
+eval:
+  temperature: 0.0
+  max_api_calls: 200
+  seed: 42
