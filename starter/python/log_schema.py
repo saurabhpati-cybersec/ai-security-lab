@@ -10,7 +10,8 @@ import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from types import TracebackType
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,7 +84,7 @@ class LogEvent(BaseModel):
     metadata: dict = Field(default_factory=dict, description="Arbitrary extra metadata")
 
 
-def make_event(**kwargs) -> LogEvent:
+def make_event(**kwargs: Any) -> LogEvent:
     """Factory that auto-populates *event_id* (uuid4) and *ts* (UTC now).
 
     Pass any other ``LogEvent`` fields as keyword arguments.
@@ -142,7 +143,12 @@ class LogWriter:
             self._fh = self._path.open("a", encoding="utf-8")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
         if self._fh is not None:
             self._fh.close()
             self._fh = None

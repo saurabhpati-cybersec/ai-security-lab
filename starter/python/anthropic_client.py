@@ -14,7 +14,7 @@ from typing import Any
 import anthropic
 from dotenv import load_dotenv
 
-from starter.python.log_schema import LogWriter, make_event
+from starter.python.log_schema import LogWriter, log_event, make_event
 
 __all__ = ["AnthropicAdapter"]
 
@@ -134,6 +134,4 @@ class AnthropicAdapter:
         if self._log_writer is not None:
             self._log_writer.write(event)
         else:
-            from starter.python.log_schema import log_event
-
             log_event(event)

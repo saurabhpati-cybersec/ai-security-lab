@@ -83,7 +83,7 @@ class OpenAIAdapter:
     ) -> None:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not set — skipping OpenAI adapter")
+            raise RuntimeError("OPENAI_API_KEY not set — add it to .env")
 
         self.model = model
         self.temperature = temperature
