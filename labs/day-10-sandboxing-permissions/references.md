@@ -1,0 +1,5 @@
+- Hardy, B. (1988). The Confused Deputy. ACM SIGOPS Operating Systems Review.
+- OWASP Agentic Security Top 10 2025. AAA-02: Overly Permissive Agent Scopes.
+- OWASP Server-Side Request Forgery (SSRF) Prevention Cheat Sheet.
+- Saltzer, J. H., & Schroeder, M. D. (1975). The protection of information in computer systems. Principle of least privilege.
+- OWASP LLM06:2025 Excessive Agency.

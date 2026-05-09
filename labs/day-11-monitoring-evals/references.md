@@ -1,0 +1,5 @@
+- NIST SP 800-61r3. Computer Security Incident Handling Guide. NIST, 2024.
+- MITRE ATLAS. AI Threat Matrix. MITRE Corporation.
+- Rehberger, J. Embrace The Red. embracethered.com
+- Willison, S. LLM security monitoring. simonwillison.net
+- OWASP LLM10:2025 Unbounded Consumption.
