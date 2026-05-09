@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.venv/
+venv/
+
+# IDE / tooling caches
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# Logs
+*.log
+
+# Eval results (keep placeholder)
+evals/results/*
+!evals/results/.gitkeep
+
+# Agent reference outbox
+agents/reference/outbox.jsonl
