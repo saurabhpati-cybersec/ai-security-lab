@@ -1,0 +1,42 @@
+# Cortex XSOAR Custom Integration: AI Agent Kill Switch
+# Emergency API key revocation endpoint
+commonfields:
+  id: AI Agent Kill Switch
+  version: 1
+name: AI Agent Kill Switch
+display: AI Agent Kill Switch
+category: Utilities
+description: >
+  Emergency kill switch integration. Revokes agent API keys via the agent
+  management API on confirmed compromise. Audit-logged.
+configuration:
+  - display: Management API Base URL
+    name: mgmt_url
+    type: 0
+    required: true
+  - display: Management API Key
+    name: mgmt_api_key
+    type: 4
+    required: true
+    hidden: true
+script:
+  script: ''
+  type: python
+  subtype: python3
+  commands:
+    - name: agentkillswitch-revoke
+      description: Immediately revoke agent API key
+      arguments:
+        - name: agent_id
+          required: true
+          description: Agent to revoke
+        - name: incident_id
+          description: XSOAR incident ID (for audit trail)
+      outputs:
+        - contextPath: KillSwitch.Revocation.agent_id
+          description: Agent that was revoked
+          type: String
+        - contextPath: KillSwitch.Revocation.status
+          description: Result status
+          type: String
+fromversion: "8.0.0"

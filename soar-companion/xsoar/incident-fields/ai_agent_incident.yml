@@ -1,0 +1,152 @@
+# Cortex XSOAR 8.x Incident Type and Custom Fields
+# Incident Type: AI Agent Incident
+
+# Incident Type Definition
+incidenttype:
+  id: AI Agent Incident
+  version: 1
+  name: AI Agent Incident
+  color: "#ff4500"
+  hours: 48
+  days: 3
+  weeks: 1
+  playbookId: AIAgentPromptInjectionTriage
+  fields:
+    - aisecurityeventid
+    - aisecurityagentid
+    - aisecuritysessionid
+    - aisecuritystep
+    - aisecurityeventtype
+    - aisecuritymodel
+    - aisecurityprompthash
+    - aisecuritydetectorname
+    - aisecuritydetectorscore
+    - aisecurityseverity
+    - aisecuritytrifectalegsactive
+    - aisecuritytrifectafull
+    - aisecuritytoolname
+    - aisecuritytoolargsredacted
+    - aisecuritytoolresultsize
+    - aisecurityoutputfilterblocked
+    - aisecurityuserid
+    - aisecurityorgid
+
+# Custom Field Definitions
+incidentfields:
+  - cliName: aisecurityeventid
+    name: AI Security Event ID
+    type: shortText
+    description: UUID of the triggering LogEvent
+    group: 0
+
+  - cliName: aisecurityagentid
+    name: AI Security Agent ID
+    type: shortText
+    description: Logical agent identifier (e.g., research-agent-prod-01)
+    group: 0
+
+  - cliName: aisecuritysessionid
+    name: AI Security Session ID
+    type: shortText
+    description: Conversation/task session UUID
+    group: 0
+
+  - cliName: aisecuritystep
+    name: AI Security Step
+    type: number
+    description: Zero-indexed step in agent loop when event occurred
+    group: 0
+
+  - cliName: aisecurityeventtype
+    name: AI Security Event Type
+    type: singleSelect
+    selectValues:
+      - model_call
+      - tool_call
+      - tool_result
+      - detector_hit
+      - policy_violation
+      - human_review_requested
+      - final_response
+    description: Type of agent event that triggered the incident
+    group: 0
+
+  - cliName: aisecuritymodel
+    name: AI Security Model
+    type: shortText
+    description: LLM model ID used (e.g., claude-sonnet-4-5)
+    group: 0
+
+  - cliName: aisecurityprompthash
+    name: AI Security Prompt Hash
+    type: shortText
+    description: SHA256 prefix of system prompt for regression tracking
+    group: 0
+
+  - cliName: aisecuritydetectorname
+    name: AI Security Detector Name
+    type: shortText
+    description: Detector that fired (rules_detector, classifier_detector)
+    group: 0
+
+  - cliName: aisecuritydetectorscore
+    name: AI Security Detector Score
+    type: number
+    description: Detector confidence score 0.0-1.0
+    group: 0
+
+  - cliName: aisecurityseverity
+    name: AI Security Severity
+    type: singleSelect
+    selectValues: [low, medium, high, critical]
+    description: Event severity from canonical schema
+    group: 0
+
+  - cliName: aisecuritytrifectalegsactive
+    name: AI Security Trifecta Legs Active
+    type: multiSelect
+    selectValues: [data, untrusted_input, egress]
+    description: Which trifecta legs were active in this session
+    group: 0
+
+  - cliName: aisecuritytrifectafull
+    name: AI Security Trifecta Full
+    type: boolean
+    description: True if all three trifecta legs were active
+    group: 0
+
+  - cliName: aisecuritytoolname
+    name: AI Security Tool Name
+    type: shortText
+    description: Name of tool involved (web_fetch, read_doc, send_message)
+    group: 0
+
+  - cliName: aisecuritytoolargsredacted
+    name: AI Security Tool Args (Redacted)
+    type: longText
+    description: Tool call arguments with sensitive values replaced
+    group: 0
+
+  - cliName: aisecuritytoolresultsize
+    name: AI Security Tool Result Size (bytes)
+    type: number
+    description: Size of tool result content in bytes
+    group: 0
+
+  - cliName: aisecurityoutputfilterblocked
+    name: AI Security Output Filter Blocked
+    type: boolean
+    description: True if OutputFilter modified the agent response
+    group: 0
+
+  - cliName: aisecurityuserid
+    name: AI Security User ID
+    type: shortText
+    description: End-user identifier for correlation across sessions
+    group: 0
+
+  - cliName: aisecurityorgid
+    name: AI Security Org ID
+    type: shortText
+    description: Organization identifier for multi-tenant deployments
+    group: 0

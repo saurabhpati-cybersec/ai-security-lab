@@ -1,0 +1,179 @@
+# Cortex XSOAR 8.x Playbook: AI Agent Containment (Kill Switch)
+# Parallel to: soar-companion/tines/stories/agent_containment.json
+id: AIAgentContainment
+version: 1
+name: AI Agent - Containment (Kill Switch)
+description: >
+  Executes the AI agent kill switch for AI-006 alerts or manual analyst
+  escalation. Revokes the agent API key immediately, preserves evidence,
+  notifies the security team via Slack, and creates a P1 Jira incident.
+starttaskid: "0"
+tasks:
+  "0":
+    id: "0"
+    taskid: start
+    type: start
+    task:
+      id: start
+      version: 1
+      name: Start
+      iscommand: false
+      brand: ""
+    nexttasks:
+      "#none#": ["1"]
+  "1":
+    id: "1"
+    taskid: check-containment-trigger
+    type: condition
+    task:
+      id: check-containment-trigger
+      version: 1
+      name: "Trifecta full OR manual override?"
+      description: >
+        Proceeds to containment if all three trifecta legs are active (confirmed
+        compromise) or if an analyst has set the manual override flag.
+      type: condition
+      iscommand: false
+      brand: ""
+    conditions:
+      - label: "Confirmed - Trifecta"
+        condition:
+          - - operator: isEqualTo
+              left:
+                value:
+                  simple: ${incident.aisecuritytrifectafull}
+                iscontext: true
+              right:
+                value:
+                  simple: "true"
+      - label: "Confirmed - Manual Override"
+        condition:
+          - - operator: isEqualTo
+              left:
+                value:
+                  simple: ${incident.aisecuritymanualoverride}
+                iscontext: true
+              right:
+                value:
+                  simple: "true"
+    nexttasks:
+      "Confirmed - Trifecta": ["2"]
+      "Confirmed - Manual Override": ["2"]
+      "#default#": ["7"]
+  "2":
+    id: "2"
+    taskid: revoke-api-key
+    type: regular
+    task:
+      id: revoke-api-key
+      version: 1
+      name: Revoke Agent API Key
+      description: >
+        Immediately revokes the agent's API key via the kill switch integration.
+        This halts any in-flight or queued sessions. The revocation is
+        audit-logged with the XSOAR incident ID.
+      iscommand: true
+      name: "AIAgentLogIntegration.revokeAgentKey"
+      brand: "AI Agent Log Integration"
+    scriptarguments:
+      agent_id:
+        complex:
+          root: incident
+          accessor: aisecurityagentid
+      reason:
+        simple: "Containment: XSOAR incident ${incident.id} - AI-006 or manual override"
+    nexttasks:
+      "#none#": ["3"]
+  "3":
+    id: "3"
+    taskid: preserve-evidence
+    type: regular
+    task:
+      id: preserve-evidence
+      version: 1
+      name: Preserve Evidence - Export Session Log
+      description: >
+        Exports the full session log to tamper-evident storage before any
+        remediation that could alter log state. Preserves all LogEvent objects,
+        tool call records, detector events, and outbox contents.
+      iscommand: true
+      name: "AIAgentLogIntegration.exportSessionLog"
+      brand: "AI Agent Log Integration"
+    scriptarguments:
+      session_id:
+        complex:
+          root: incident
+          accessor: aisecuritysessionid
+      destination:
+        simple: "evidence-store"
+      incident_id:
+        complex:
+          root: incident
+          accessor: id
+    nexttasks:
+      "#none#": ["4", "5"]
+  "4":
+    id: "4"
+    taskid: notify-slack
+    type: regular
+    task:
+      id: notify-slack
+      version: 1
+      name: "Notify Slack: Agent Contained"
+      description: Alerts the AI security channel that an agent has been contained.
+      iscommand: true
+      name: "Slack.SendMessage"
+      brand: "SlackV3"
+    scriptarguments:
+      channel:
+        simple: "#ai-security-alerts"
+      message:
+        simple: "AGENT CONTAINED\nAgent: ${incident.aisecurityagentid}\nSession: ${incident.aisecuritysessionid}\nTrigger: Trifecta full=${incident.aisecuritytrifectafull}\nXSOAR Incident: ${incident.id}\nAPI key has been revoked. Evidence preserved."
+    nexttasks:
+      "#none#": ["6"]
+  "5":
+    id: "5"
+    taskid: create-p1-incident
+    type: regular
+    task:
+      id: create-p1-incident
+      version: 1
+      name: "Create P1 Security Incident in Jira"
+      description: >
+        Opens a P1 Jira security incident for tracking remediation: injection
+        source identification, new key issuance, eval re-run, and incident report.
+      iscommand: true
+      name: "Jira.createIssue"
+      brand: "Jira V2"
+    scriptarguments:
+      summary:
+        simple: "AI-006 CRITICAL: Agent Contained - ${incident.aisecurityagentid}"
+      description:
+        simple: "Agent: ${incident.aisecurityagentid}\nSession: ${incident.aisecuritysessionid}\nTrifecta: ${incident.aisecuritytrifectalegsactive}\nXSOAR Incident: ${incident.id}\nPlaybook: AI Agent Containment\n\nAPI key revoked. Evidence exported. Pending: injection source investigation, new key issuance, eval-all re-run."
+      issueType:
+        simple: "Security Incident"
+      priority:
+        simple: "Critical"
+    nexttasks:
+      "#none#": ["6"]
+  "6":
+    id: "6"
+    taskid: end-contained
+    type: end
+    task:
+      id: end-contained
+      version: 1
+      name: End (Agent Contained)
+      iscommand: false
+      brand: ""
+  "7":
+    id: "7"
+    taskid: end-no-action
+    type: end
+    task:
+      id: end-no-action
+      version: 1
+      name: End (No Action - Conditions Not Met)
+      iscommand: false
+      brand: ""
+fromversion: "8.0.0"

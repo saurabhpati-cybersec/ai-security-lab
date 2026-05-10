@@ -1,0 +1,71 @@
+# Cortex XSOAR Custom Integration: AI Agent Log Integration
+# Collects canonical LogEvent telemetry from ai-security-lab agents
+commonfields:
+  id: AI Agent Log Integration
+  version: 1
+name: AI Agent Log Integration
+display: AI Agent Log Integration
+category: Analytics & SIEM
+description: >
+  Collects structured log events from ai-security-lab agents. Provides commands
+  for fetching session logs, querying run history, and executing the kill switch
+  (API key revocation).
+configuration:
+  - display: Agent Log API Base URL
+    name: base_url
+    type: 0
+    required: true
+    defaultvalue: "http://localhost:8080"
+  - display: API Key
+    name: api_key
+    type: 4
+    required: true
+    hidden: true
+  - display: Trust any certificate
+    name: insecure
+    type: 8
+    required: false
+script:
+  script: ''
+  type: python
+  subtype: python3
+  commands:
+    - name: aiagentlog-get-session
+      description: Fetch full session log by session_id
+      arguments:
+        - name: session_id
+          required: true
+          description: The session UUID to retrieve
+      outputs:
+        - contextPath: AIAgentLog.Session.session_id
+          description: Session identifier
+          type: String
+        - contextPath: AIAgentLog.Session.events
+          description: List of LogEvent objects in the session
+          type: Unknown
+    - name: aiagentlog-query-runs
+      description: Query agent run history with filters
+      arguments:
+        - name: agent_id
+          description: Filter by agent_id
+        - name: event_type
+          description: Filter by event_type (e.g., detector_hit)
+        - name: since
+          description: ISO8601 timestamp for start of query window
+      outputs:
+        - contextPath: AIAgentLog.Runs
+          description: List of matching log events
+          type: Unknown
+    - name: aiagentlog-revoke-key
+      description: Revoke the agent's API key (kill switch)
+      arguments:
+        - name: agent_id
+          required: true
+          description: The agent to revoke
+        - name: reason
+          description: Reason for revocation (logged)
+      outputs:
+        - contextPath: AIAgentLog.Revocation.status
+          description: 'revoked or error'
+          type: String
+fromversion: "8.0.0"
