@@ -12,6 +12,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from evals.harness.runner import evaluate_criteria  # noqa: E402
 from evals.harness.scorers import bootstrap_ci, compute_asr, compute_tpr_fpr  # noqa: E402
+from starter.python.openai_client import _convert_messages  # noqa: E402
 
 
 def _assert(condition: bool, description: str) -> None:
@@ -234,6 +235,124 @@ def test_bootstrap_ci_sensible() -> None:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI adapter — Anthropic-to-OpenAI message conversion
+# ---------------------------------------------------------------------------
+
+def test_convert_messages_string_content() -> None:
+    print("--- _convert_messages: string content ---")
+    msgs = [{"role": "user", "content": "hello"}]
+    out = _convert_messages(msgs)
+    _assert(len(out) == 1, "single message in → single message out")
+    _assert(out[0] == {"role": "user", "content": "hello"}, "string content passed through unchanged")
+
+
+def test_convert_messages_assistant_tool_use() -> None:
+    print("--- _convert_messages: assistant tool_use blocks ---")
+    msgs = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Calling tool"},
+                {"type": "tool_use", "id": "toolu_abc", "name": "read_doc", "input": {"name": "faq.md"}},
+            ],
+        }
+    ]
+    out = _convert_messages(msgs)
+    _assert(len(out) == 1, "assistant message with tool_use → 1 OpenAI message")
+    _assert(out[0]["role"] == "assistant", "role preserved as assistant")
+    _assert(out[0]["content"] == "Calling tool", "text content extracted")
+    _assert("tool_calls" in out[0], "tool_calls field present")
+    _assert(len(out[0]["tool_calls"]) == 1, "one tool_call emitted")
+
+    tc = out[0]["tool_calls"][0]
+    _assert(tc["id"] == "toolu_abc", "tool_call id preserved")
+    _assert(tc["type"] == "function", "tool_call type is function")
+    _assert(tc["function"]["name"] == "read_doc", "tool name preserved")
+    _assert(
+        tc["function"]["arguments"] == '{"name": "faq.md"}',
+        "tool arguments JSON-encoded",
+    )
+
+
+def test_convert_messages_assistant_tool_use_only() -> None:
+    print("--- _convert_messages: assistant tool_use without text ---")
+    msgs = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_x", "name": "f", "input": {}},
+            ],
+        }
+    ]
+    out = _convert_messages(msgs)
+    _assert(out[0]["content"] is None, "empty text block → content is None (OpenAI requires null)")
+    _assert(len(out[0]["tool_calls"]) == 1, "tool_call still present")
+
+
+def test_convert_messages_user_tool_result() -> None:
+    print("--- _convert_messages: user tool_result blocks ---")
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_abc", "content": "doc body here"},
+            ],
+        }
+    ]
+    out = _convert_messages(msgs)
+    _assert(len(out) == 1, "single tool_result → single OpenAI tool message")
+    _assert(out[0]["role"] == "tool", "role becomes 'tool'")
+    _assert(out[0]["tool_call_id"] == "toolu_abc", "tool_use_id mapped to tool_call_id")
+    _assert(out[0]["content"] == "doc body here", "result content preserved")
+
+
+def test_convert_messages_tool_result_list_content() -> None:
+    print("--- _convert_messages: tool_result with list content ---")
+    msgs = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_y",
+                    "content": [
+                        {"type": "text", "text": "part1 "},
+                        {"type": "text", "text": "part2"},
+                    ],
+                },
+            ],
+        }
+    ]
+    out = _convert_messages(msgs)
+    _assert(out[0]["content"] == "part1 part2", "list-of-text-blocks flattened to string")
+
+
+def test_convert_messages_full_round_trip() -> None:
+    print("--- _convert_messages: full multi-turn round trip ---")
+    msgs = [
+        {"role": "user", "content": "Read faq.md"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Reading."},
+                {"type": "tool_use", "id": "toolu_1", "name": "read_doc", "input": {"name": "faq.md"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "FAQ contents"},
+            ],
+        },
+    ]
+    out = _convert_messages(msgs)
+    _assert(len(out) == 3, "3 input messages → 3 output messages")
+    _assert(out[0]["role"] == "user" and out[0]["content"] == "Read faq.md", "turn 0: user string")
+    _assert(out[1]["role"] == "assistant" and "tool_calls" in out[1], "turn 1: assistant with tool_calls")
+    _assert(out[2]["role"] == "tool" and out[2]["tool_call_id"] == "toolu_1", "turn 2: tool result")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -248,6 +367,12 @@ def main() -> None:
     test_unknown_criteria()
     test_scorers()
     test_bootstrap_ci_sensible()
+    test_convert_messages_string_content()
+    test_convert_messages_assistant_tool_use()
+    test_convert_messages_assistant_tool_use_only()
+    test_convert_messages_user_tool_result()
+    test_convert_messages_tool_result_list_content()
+    test_convert_messages_full_round_trip()
 
     print("\nSmoketest PASSED")
 

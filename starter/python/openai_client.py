@@ -23,6 +23,60 @@ __all__ = ["OpenAIAdapter"]
 load_dotenv()
 
 
+def _convert_messages(messages: list[dict]) -> list[dict]:
+    """Convert Anthropic-format conversation history to OpenAI format.
+
+    Handles two non-trivial cases:
+    - assistant messages with tool_use blocks → assistant message with tool_calls
+    - user messages with tool_result blocks → one role:tool message per result
+    """
+    import json as _json
+
+    out: list[dict] = []
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+
+        if isinstance(content, str):
+            out.append({"role": role, "content": content})
+            continue
+
+        if role == "assistant":
+            text_parts = [b["text"] for b in content if b.get("type") == "text"]
+            tool_use_blocks = [b for b in content if b.get("type") == "tool_use"]
+            oai_msg: dict = {"role": "assistant", "content": "".join(text_parts) or None}
+            if tool_use_blocks:
+                oai_msg["tool_calls"] = [
+                    {
+                        "id": b["id"],
+                        "type": "function",
+                        "function": {
+                            "name": b["name"],
+                            "arguments": _json.dumps(b["input"]),
+                        },
+                    }
+                    for b in tool_use_blocks
+                ]
+            out.append(oai_msg)
+
+        elif role == "user":
+            tool_result_blocks = [b for b in content if b.get("type") == "tool_result"]
+            text_blocks = [b for b in content if b.get("type") == "text"]
+            for b in tool_result_blocks:
+                result_content = b.get("content", "")
+                if isinstance(result_content, list):
+                    result_content = "".join(
+                        c.get("text", "") for c in result_content if c.get("type") == "text"
+                    )
+                out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": result_content})
+            if text_blocks:
+                out.append({"role": "user", "content": "".join(b.get("text", "") for b in text_blocks)})
+        else:
+            out.append(msg)
+
+    return out
+
+
 def _convert_tool(anthropic_tool: dict) -> dict:
     """Convert a single Anthropic-format tool definition to OpenAI format.
 
@@ -134,7 +188,7 @@ class OpenAIAdapter:
 
         # Prepend the system message in OpenAI format.
         openai_messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        openai_messages.extend(messages)
+        openai_messages.extend(_convert_messages(messages))
 
         # Convert tools from Anthropic format to OpenAI format.
         openai_tools = [_convert_tool(t) for t in tools] if tools else []
