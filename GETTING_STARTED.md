@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-You can use either key alone or both together. The agents default to Anthropic; switching to OpenAI is one line change in the agent config.
+You can use either key alone or both together. The agents try Anthropic first and automatically fall back to OpenAI (`gpt-4.1`) if `ANTHROPIC_API_KEY` is missing — no code change required.
 
 ---
 
@@ -57,13 +57,13 @@ Verifies the core modules work without calling any API:
 make test
 ```
 
-Expected output:
+Expected output ends with:
 
 ```
-Smoketest PASSED — 38/38 assertions
+Smoketest PASSED
 ```
 
-If this fails, check your Python version (`python3 --version`) and that all dependencies installed cleanly.
+The smoketest runs 60 assertions covering the eval criteria, scorers, bootstrap CIs, and the OpenAI ↔ Anthropic message conversion. If it fails, check your Python version (`python3 --version` must be 3.11+) and that all dependencies installed cleanly.
 
 ---
 
@@ -204,23 +204,25 @@ soar-companion/
 
 ## Step 10 — Switching Between Anthropic and OpenAI
 
-The adapters in `starter/python/` normalize both APIs to the same interface.
+The adapters in `starter/python/` normalize both APIs to the same interface. Both accept Anthropic-format messages and tool definitions; the OpenAI adapter converts them internally (covered by `_convert_messages` and `_convert_tool`, both unit-tested in the smoketest).
 
-**Use Anthropic (default):**
+**Automatic fallback (recommended):** Just set whichever key you have in `.env`. The agents try `AnthropicAdapter` first, then fall back to `OpenAIAdapter` if `ANTHROPIC_API_KEY` is missing.
+
+**Manual instantiation if you need to pin a provider:**
+
 ```python
 from starter.python.anthropic_client import AnthropicAdapter
-client = AnthropicAdapter()
-response, logs = client.run(messages, tools)
+client = AnthropicAdapter(model="claude-sonnet-4-5")
+text, tool_calls = client.run(messages, tools, system_prompt)
 ```
 
-**Use OpenAI:**
 ```python
 from starter.python.openai_client import OpenAIAdapter
-client = OpenAIAdapter()
-response, logs = client.run(messages, tools)
+client = OpenAIAdapter(model="gpt-4.1")
+text, tool_calls = client.run(messages, tools, system_prompt)
 ```
 
-Both adapters accept the same tool definitions and return the same `(response_text, log_events)` tuple.
+Both return `(text: str, tool_calls: list[dict])` and emit the same structured log events.
 
 ---
 
