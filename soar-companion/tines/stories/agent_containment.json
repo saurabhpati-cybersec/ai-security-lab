@@ -1,0 +1,101 @@
+{
+  "schema_version": "1",
+  "standard_lib_version": 1,
+  "action_runtime_version": 1,
+  "name": "AI Agent: Containment (Kill Switch)",
+  "description": "On confirmed compromise: revokes agent API key, blocks egress, preserves evidence, notifies team. Triggered by AI-006 or analyst escalation from triage story.",
+  "guid": "tines-story-agent-containment-v1",
+  "send_to_team_name": "Security Operations",
+  "tags": ["ai-security", "containment", "kill-switch"],
+  "agents": [
+    {
+      "type": "Agents::WebhookAgent",
+      "name": "Receive Containment Trigger",
+      "options": {
+        "secret": "{% credential AI_WEBHOOK_SECRET %}",
+        "verbs": "post",
+        "path": "ai-agent-containment"
+      },
+      "guid": "webhook-containment-trigger",
+      "description": "Receives containment trigger from triage story or manual analyst action."
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Confirm: Trifecta or Manual Override",
+      "options": {
+        "rules": [
+          {"type": "or", "rules": [
+            {"type": "field==value", "value": "true", "path": "{{.receive_containment_trigger.body.manual_override}}"},
+            {"type": "field>=value", "value": "3", "path": "{{.receive_containment_trigger.body.trifecta_legs_count}}"}
+          ]}
+        ]
+      },
+      "guid": "confirm-containment-criteria",
+      "description": "Only proceeds if trifecta is full or analyst manually triggered"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Revoke API Key",
+      "options": {
+        "url": "{% credential AGENT_MGMT_API %}/agents/{{.receive_containment_trigger.body.agent_id}}/revoke",
+        "method": "post",
+        "headers": {"Authorization": "Bearer {% credential MGMT_API_KEY %}"},
+        "payload": {"reason": "AI security incident - session {{.receive_containment_trigger.body.session_id}}"}
+      },
+      "guid": "revoke-api-key",
+      "description": "Calls agent management API to revoke the agent's API key"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Preserve Evidence",
+      "options": {
+        "url": "{% credential AGENT_LOG_API_BASE_URL %}/sessions/{{.receive_containment_trigger.body.session_id}}/export",
+        "method": "post",
+        "headers": {"Authorization": "Bearer {% credential AGENT_LOG_API_KEY %}"},
+        "payload": {"destination": "evidence-bucket", "format": "jsonl"}
+      },
+      "guid": "preserve-evidence",
+      "description": "Exports full session log to evidence bucket before any cleanup"
+    },
+    {
+      "type": "Agents::SendToStoryAgent",
+      "name": "Notify Slack: Containment Executed",
+      "options": {
+        "story": "{% story 'Security Slack Approval' %}",
+        "payload": {
+          "channel": "#ai-security-alerts",
+          "message": "CONTAINMENT EXECUTED\nAgent: {{.receive_containment_trigger.body.agent_id}}\nSession: {{.receive_containment_trigger.body.session_id}}\nAPI key revoked: YES\nEvidence preserved: YES\nNext: Run exfiltration response playbook if exfil confirmed."
+        }
+      },
+      "guid": "notify-containment",
+      "description": "Posts containment confirmation to #ai-security-alerts"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Create Containment Ticket",
+      "options": {
+        "url": "{% credential JIRA_BASE_URL %}/rest/api/3/issue",
+        "method": "post",
+        "headers": {"Authorization": "Bearer {% credential JIRA_API_TOKEN %}", "Content-Type": "application/json"},
+        "payload": {
+          "fields": {
+            "project": {"key": "SEC"},
+            "summary": "AI Agent Containment - {{.receive_containment_trigger.body.agent_id}}",
+            "description": "Containment executed. Agent API key revoked. Evidence preserved.\nSession: {{.receive_containment_trigger.body.session_id}}\nPlaybook: soar-companion/tines/stories/agent_containment.json",
+            "issuetype": {"name": "Security Incident"},
+            "priority": {"name": "Critical"}
+          }
+        }
+      },
+      "guid": "create-containment-ticket"
+    }
+  ],
+  "links": [
+    {"source": "webhook-containment-trigger", "receiver": "confirm-containment-criteria"},
+    {"source": "confirm-containment-criteria", "receiver": "revoke-api-key"},
+    {"source": "confirm-containment-criteria", "receiver": "preserve-evidence"},
+    {"source": "revoke-api-key", "receiver": "notify-containment"},
+    {"source": "preserve-evidence", "receiver": "notify-containment"},
+    {"source": "notify-containment", "receiver": "create-containment-ticket"}
+  ]
+}

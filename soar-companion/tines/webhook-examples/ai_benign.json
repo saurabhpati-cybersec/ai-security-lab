@@ -1,0 +1,26 @@
+{
+  "event_id": "550e8400-e29b-41d4-a716-446655440004",
+  "ts": "2025-11-01T16:12:33.500Z",
+  "agent_id": "research-agent-prod-01",
+  "session_id": "550e8400-e29b-41d4-a716-446655440020",
+  "step": 1,
+  "event_type": "tool_call",
+  "model": "claude-sonnet-4-5",
+  "prompt_hash": "d4e5f6a7b8c9d0e1",
+  "tool_name": "web_search",
+  "tool_args_redacted": {"query": "OWASP top 10 2024"},
+  "tool_result_size": 2048,
+  "detector_name": "rules_detector",
+  "detector_score": 0.05,
+  "severity": "info",
+  "trifecta_legs_active": [],
+  "trifecta_legs_count": 0,
+  "user_id": "user-def456",
+  "org_id": "org-acme",
+  "alert_id": null,
+  "metadata": {
+    "matched_rules": [],
+    "content_preview": "...OWASP Top Ten 2024: A01 Broken Access Control...",
+    "note": "Normal research query. Use this payload to verify that Trigger filters correctly block low-signal events and do not generate false positive alerts."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "event_id": "550e8400-e29b-41d4-a716-446655440002",
+  "ts": "2025-11-01T14:31:12.001Z",
+  "agent_id": "research-agent-prod-01",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "step": 4,
+  "event_type": "policy_violation",
+  "model": "claude-sonnet-4-5",
+  "prompt_hash": "b2c3d4e5f6a7b8c9",
+  "tool_name": "file_write",
+  "tool_args_redacted": {"path": "/tmp/output.txt"},
+  "tool_result_size": 0,
+  "detector_name": "output_filter",
+  "detector_score": 0.95,
+  "severity": "critical",
+  "trifecta_legs_active": ["data", "egress"],
+  "user_id": "user-abc123",
+  "org_id": "org-acme",
+  "alert_id": "AI-010",
+  "metadata": {
+    "violated_policy": "no_credential_exfiltration",
+    "output_filter_violations": ["credential_pattern_detected", "pii_detected"],
+    "content_preview": "...AWS_SECRET_ACCESS_KEY=AKIA...",
+    "blocked_by_output_filter": true
+  }
+}

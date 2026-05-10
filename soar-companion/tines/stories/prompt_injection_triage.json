@@ -1,0 +1,112 @@
+{
+  "schema_version": "1",
+  "standard_lib_version": 1,
+  "action_runtime_version": 1,
+  "name": "AI Agent: Prompt Injection Triage",
+  "description": "Triages prompt injection detector hits. Triggered by AI-001 alert. Enriches with session context, scores severity, routes to Slack for approval, creates ticket.",
+  "guid": "tines-story-prompt-injection-triage-v1",
+  "send_to_team_name": "Security Operations",
+  "tags": ["ai-security", "prompt-injection", "triage"],
+  "agents": [
+    {
+      "type": "Agents::WebhookAgent",
+      "name": "Receive AI Security Event",
+      "options": {
+        "secret": "{% credential AI_WEBHOOK_SECRET %}",
+        "verbs": "post",
+        "path": "ai-security-events"
+      },
+      "guid": "webhook-receive-ai-event",
+      "description": "Receives LogEvent payloads matching the canonical AI security schema."
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Filter: Prompt Injection High Confidence",
+      "options": {
+        "rules": [
+          {"type": "field>=value", "value": "0.7", "path": "{{.receive_ai_security_event.body.detector_score}}"},
+          {"type": "field==value", "value": "detector_hit", "path": "{{.receive_ai_security_event.body.event_type}}"}
+        ]
+      },
+      "guid": "trigger-high-confidence-injection",
+      "description": "Only passes events with detector_score >= 0.7 and event_type=detector_hit"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Enrich: Pull Session Context",
+      "options": {
+        "url": "{% credential AGENT_LOG_API_BASE_URL %}/sessions/{{.receive_ai_security_event.body.session_id}}",
+        "method": "get",
+        "headers": {"Authorization": "Bearer {% credential AGENT_LOG_API_KEY %}"},
+        "payload": {}
+      },
+      "guid": "enrich-session-context",
+      "description": "Fetches full session log from agent log API using session_id"
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "Score Severity",
+      "options": {
+        "mode": "message_only",
+        "message": "{% assign score = receive_ai_security_event.body.detector_score | times: 100 | round %}{% assign trifecta = receive_ai_security_event.body.trifecta_legs_active.size %}{% if score >= 90 and trifecta == 3 %}critical{% elsif score >= 70 %}high{% else %}medium{% endif %}"
+      },
+      "guid": "score-severity",
+      "description": "Derives severity from detector_score and trifecta_legs_active count"
+    },
+    {
+      "type": "Agents::SendToStoryAgent",
+      "name": "Slack: Request Analyst Approval",
+      "options": {
+        "story": "{% story 'Security Slack Approval' %}",
+        "payload": {
+          "channel": "#ai-security-alerts",
+          "message": "AI-001: Prompt injection detected\nAgent: {{.receive_ai_security_event.body.agent_id}}\nSession: {{.receive_ai_security_event.body.session_id}}\nScore: {{.receive_ai_security_event.body.detector_score}}\nSeverity: {{.score_severity.message}}\nRules: {{.receive_ai_security_event.body.metadata.matched_rules | join: ', '}}"
+        }
+      },
+      "guid": "slack-request-approval",
+      "description": "Posts to #ai-security-alerts for analyst triage decision"
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Filter: Critical Only for Auto-Ticket",
+      "options": {
+        "rules": [
+          {"type": "field==value", "value": "critical", "path": "{{.score_severity.message}}"}
+        ]
+      },
+      "guid": "trigger-critical-severity",
+      "description": "Creates ticket automatically for critical severity; others wait for analyst"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Create Ticket",
+      "options": {
+        "url": "{% credential JIRA_BASE_URL %}/rest/api/3/issue",
+        "method": "post",
+        "headers": {
+          "Authorization": "Bearer {% credential JIRA_API_TOKEN %}",
+          "Content-Type": "application/json"
+        },
+        "payload": {
+          "fields": {
+            "project": {"key": "SEC"},
+            "summary": "AI-001: Prompt Injection - {{.receive_ai_security_event.body.agent_id}}",
+            "description": "Session: {{.receive_ai_security_event.body.session_id}}\nDetector: {{.receive_ai_security_event.body.detector_name}}\nScore: {{.receive_ai_security_event.body.detector_score}}\nSeverity: {{.score_severity.message}}\nPlaybook: soar-companion/tines/stories/prompt_injection_triage.json",
+            "issuetype": {"name": "Security Incident"},
+            "priority": {"name": "High"}
+          }
+        }
+      },
+      "guid": "create-jira-ticket",
+      "description": "Creates Jira security incident for critical prompt injection events"
+    }
+  ],
+  "links": [
+    {"source": "webhook-receive-ai-event", "receiver": "trigger-high-confidence-injection"},
+    {"source": "trigger-high-confidence-injection", "receiver": "enrich-session-context"},
+    {"source": "enrich-session-context", "receiver": "score-severity"},
+    {"source": "score-severity", "receiver": "slack-request-approval"},
+    {"source": "score-severity", "receiver": "trigger-critical-severity"},
+    {"source": "trigger-critical-severity", "receiver": "create-jira-ticket"}
+  ]
+}

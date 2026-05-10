@@ -1,0 +1,169 @@
+{
+  "schema_version": "1",
+  "standard_lib_version": 1,
+  "action_runtime_version": 1,
+  "name": "AI Agent: Exfiltration Response",
+  "description": "Responds to outbound data exfiltration attempts. Triggered by AI-002 (suspicious egress URL) or AI-010 (output policy violation). Checks if OutputFilter already blocked the event; if not, blocks at egress proxy, notifies team, and creates P1 ticket. If already blocked, creates an allowlist review ticket.",
+  "guid": "tines-story-exfiltration-response-v1",
+  "send_to_team_name": "Security Operations",
+  "tags": ["ai-security", "exfiltration", "egress", "data-loss-prevention"],
+  "agents": [
+    {
+      "type": "Agents::WebhookAgent",
+      "name": "Receive Egress Event",
+      "options": {
+        "secret": "{% credential AI_WEBHOOK_SECRET %}",
+        "verbs": "post",
+        "path": "ai-egress-events"
+      },
+      "guid": "webhook-receive-egress-event",
+      "description": "Receives LogEvent payloads for AI-002 (suspicious egress URL) and AI-010 (output policy violation) alerts."
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Filter: Egress Alert Event Types",
+      "options": {
+        "rules": [
+          {"type": "or", "rules": [
+            {"type": "field==value", "value": "egress_blocked", "path": "{{.receive_egress_event.body.event_type}}"},
+            {"type": "field==value", "value": "policy_violation", "path": "{{.receive_egress_event.body.event_type}}"},
+            {"type": "field==value", "value": "tool_call", "path": "{{.receive_egress_event.body.event_type}}"}
+          ]},
+          {"type": "or", "rules": [
+            {"type": "field==value", "value": "AI-002", "path": "{{.receive_egress_event.body.alert_id}}"},
+            {"type": "field==value", "value": "AI-010", "path": "{{.receive_egress_event.body.alert_id}}"},
+            {"type": "field==value", "value": "egress", "path": "{{.receive_egress_event.body.trifecta_legs_active | first}}"}
+          ]}
+        ]
+      },
+      "guid": "filter-egress-alert-types",
+      "description": "Passes only AI-002 and AI-010 alert events or events with egress trifecta leg active"
+    },
+    {
+      "type": "Agents::EventTransformationAgent",
+      "name": "Check OutputFilter Action",
+      "options": {
+        "mode": "message_only",
+        "message": "{% if receive_egress_event.body.metadata.output_filter_violations and receive_egress_event.body.metadata.output_filter_violations.size > 0 %}blocked{% else %}not_blocked{% endif %}"
+      },
+      "guid": "check-output-filter-action",
+      "description": "Checks metadata.output_filter_violations to determine if OutputFilter already intercepted this egress attempt"
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Branch: Not Blocked by OutputFilter",
+      "options": {
+        "rules": [
+          {"type": "field==value", "value": "not_blocked", "path": "{{.check_output_filter_action.message}}"}
+        ]
+      },
+      "guid": "branch-if-not-blocked",
+      "description": "Proceeds to active blocking path when OutputFilter did not catch this event"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Block at Egress Proxy",
+      "options": {
+        "url": "{% credential EGRESS_PROXY_API %}/block",
+        "method": "post",
+        "headers": {
+          "Authorization": "Bearer {% credential EGRESS_PROXY_API_KEY %}",
+          "Content-Type": "application/json"
+        },
+        "payload": {
+          "agent_id": "{{.receive_egress_event.body.agent_id}}",
+          "session_id": "{{.receive_egress_event.body.session_id}}",
+          "url": "{{.receive_egress_event.body.tool_args_redacted.url}}",
+          "action": "block",
+          "reason": "AI security incident - potential data exfiltration",
+          "ttl_seconds": 86400
+        }
+      },
+      "guid": "block-at-egress",
+      "description": "Calls egress proxy API to block the destination URL for this agent session. Replace EGRESS_PROXY_API credential with your proxy vendor endpoint (Zscaler, Palo Alto, Squid)."
+    },
+    {
+      "type": "Agents::SendToStoryAgent",
+      "name": "Notify Slack: Exfil Blocked",
+      "options": {
+        "story": "{% story 'Security Slack Approval' %}",
+        "payload": {
+          "channel": "#ai-security-alerts",
+          "message": "EXFILTRATION BLOCKED\nAlert: {{.receive_egress_event.body.alert_id}}\nAgent: {{.receive_egress_event.body.agent_id}}\nSession: {{.receive_egress_event.body.session_id}}\nDestination URL: {{.receive_egress_event.body.tool_args_redacted.url}}\nTool: {{.receive_egress_event.body.tool_name}}\nEgress proxy block: APPLIED\nSeverity: {{.receive_egress_event.body.severity}}\nAction required: Confirm P1 ticket and review session logs."
+        }
+      },
+      "guid": "notify-exfil-slack",
+      "description": "Posts egress block notification to #ai-security-alerts for analyst awareness"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Create P1 Ticket",
+      "options": {
+        "url": "{% credential JIRA_BASE_URL %}/rest/api/3/issue",
+        "method": "post",
+        "headers": {
+          "Authorization": "Bearer {% credential JIRA_API_TOKEN %}",
+          "Content-Type": "application/json"
+        },
+        "payload": {
+          "fields": {
+            "project": {"key": "SEC"},
+            "summary": "P1: AI Exfiltration Attempt - {{.receive_egress_event.body.agent_id}}",
+            "description": "Potential data exfiltration by AI agent.\nAlert: {{.receive_egress_event.body.alert_id}}\nAgent: {{.receive_egress_event.body.agent_id}}\nSession: {{.receive_egress_event.body.session_id}}\nDestination: {{.receive_egress_event.body.tool_args_redacted.url}}\nTool: {{.receive_egress_event.body.tool_name}}\nOutputFilter blocked: NO (active block applied at egress proxy)\nTrifecta legs: {{.receive_egress_event.body.trifecta_legs_active | join: ', '}}\nPlaybook: soar-companion/tines/stories/exfiltration_response.json\nNext steps: Review full session log, escalate to containment if agent is compromised.",
+            "issuetype": {"name": "Security Incident"},
+            "priority": {"name": "Highest"},
+            "labels": ["ai-security", "exfiltration", "p1"]
+          }
+        }
+      },
+      "guid": "create-p1-ticket",
+      "description": "Creates P1 Jira security incident for active exfiltration not caught by OutputFilter"
+    },
+    {
+      "type": "Agents::TriggerAgent",
+      "name": "Branch: Already Blocked by OutputFilter",
+      "options": {
+        "rules": [
+          {"type": "field==value", "value": "blocked", "path": "{{.check_output_filter_action.message}}"}
+        ]
+      },
+      "guid": "branch-if-blocked",
+      "description": "Routes to allowlist review path when OutputFilter already blocked this egress attempt"
+    },
+    {
+      "type": "Agents::HTTPRequestAgent",
+      "name": "Create Allowlist Review Ticket",
+      "options": {
+        "url": "{% credential JIRA_BASE_URL %}/rest/api/3/issue",
+        "method": "post",
+        "headers": {
+          "Authorization": "Bearer {% credential JIRA_API_TOKEN %}",
+          "Content-Type": "application/json"
+        },
+        "payload": {
+          "fields": {
+            "project": {"key": "SEC"},
+            "summary": "OutputFilter Block Review - {{.receive_egress_event.body.agent_id}}",
+            "description": "OutputFilter blocked an egress attempt. Review whether the blocked URL is legitimate (allowlist candidate) or confirmed malicious.\nAlert: {{.receive_egress_event.body.alert_id}}\nAgent: {{.receive_egress_event.body.agent_id}}\nSession: {{.receive_egress_event.body.session_id}}\nDestination: {{.receive_egress_event.body.tool_args_redacted.url}}\nOutputFilter violations: {{.receive_egress_event.body.metadata.output_filter_violations | join: ', '}}\nPlaybook: soar-companion/tines/stories/exfiltration_response.json\nAction: If false positive, add to OutputFilter allowlist. If malicious, escalate to containment.",
+            "issuetype": {"name": "Security Task"},
+            "priority": {"name": "Medium"},
+            "labels": ["ai-security", "allowlist-review", "output-filter"]
+          }
+        }
+      },
+      "guid": "create-allowlist-review-ticket",
+      "description": "Creates a review ticket for OutputFilter-blocked egress events to assess FP vs. confirmed threat"
+    }
+  ],
+  "links": [
+    {"source": "webhook-receive-egress-event", "receiver": "filter-egress-alert-types"},
+    {"source": "filter-egress-alert-types", "receiver": "check-output-filter-action"},
+    {"source": "check-output-filter-action", "receiver": "branch-if-not-blocked"},
+    {"source": "check-output-filter-action", "receiver": "branch-if-blocked"},
+    {"source": "branch-if-not-blocked", "receiver": "block-at-egress"},
+    {"source": "branch-if-not-blocked", "receiver": "notify-exfil-slack"},
+    {"source": "block-at-egress", "receiver": "create-p1-ticket"},
+    {"source": "notify-exfil-slack", "receiver": "create-p1-ticket"},
+    {"source": "branch-if-blocked", "receiver": "create-allowlist-review-ticket"}
+  ]
+}
