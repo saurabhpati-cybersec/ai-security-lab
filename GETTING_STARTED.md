@@ -73,28 +73,34 @@ The lab has three agents that share the same tool interface:
 
 | Agent | Location | Purpose |
 |---|---|---|
-| Reference | `agents/reference/` | Canonical baseline — clean, readable, well-logged |
-| Vulnerable | `agents/vulnerable/` | No defenses — your attack target |
-| Protected | `agents/protected/` | All defenses applied — your capstone output |
+| Reference | `agents/reference/` | Abstract base class + shared tooling. **Not runnable directly** — defines the interface vulnerable and protected inherit. Read this first. |
+| Vulnerable | `agents/vulnerable/` | Concrete agent with no defenses — your attack target |
+| Protected | `agents/protected/` | Concrete agent with all defenses applied — your capstone output |
 
-Each agent has three tools:
+Each agent has three tools (defined once in `agents/reference/tools.py`):
 - `web_fetch` — fetches a URL (8KB limit, SSRF prevention)
 - `read_doc` — reads a file from the RAG corpus
 - `send_message` — sends an outbound message (logged to `outbox.jsonl`)
 
 ---
 
-## Step 6 — Run the Reference Agent
+## Step 6 — Run an Agent
+
+The reference agent is an abstract base — to actually launch a working agent, use vulnerable or protected:
 
 ```bash
-python3 agents/reference/agent.py
+# Vulnerable agent (no defenses) — used for attack labs
+python3 agents/vulnerable/agent.py "What tools do you have?"
+
+# Protected agent (full defense stack) — used for capstone
+python3 agents/protected/agent.py "What tools do you have?"
 ```
 
-This runs a sample task and prints structured log events. You will see the agent:
-1. Receive a user task
-2. Call tools in a step loop
-3. Emit JSON log events for every action
-4. Return a final response
+Either command will:
+1. Auto-pick the adapter (Anthropic if key set, else OpenAI)
+2. Run the explicit step loop — plan, act, observe
+3. Emit structured JSON log events for every model call, tool call, tool result, detector hit, and policy violation
+4. Print the final response
 
 ---
 
@@ -243,14 +249,13 @@ python3 evals/harness/runner.py \
   --dataset evals/datasets/direct_injection.jsonl \
   --agent vulnerable
 
-# Run the reference agent
-python3 agents/reference/agent.py
+# Run the vulnerable agent (with optional query)
+python3 agents/vulnerable/agent.py "What tools do you have?"
 
-# Run the vulnerable agent
-python3 agents/vulnerable/agent.py
+# Run the protected agent (with optional query)
+python3 agents/protected/agent.py "What tools do you have?"
 
-# Run the protected agent
-python3 agents/protected/agent.py
+# Note: agents/reference/agent.py is the abstract base class — not runnable directly
 
 # Lint and format
 ruff check .
