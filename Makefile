@@ -4,13 +4,15 @@ setup:
 	pip install -r requirements.txt
 
 test:
-	pytest
+	python3 evals/harness/smoketest.py
 
 eval:
-	@echo "Not yet implemented"
+	@echo "Usage: make eval DATASET=direct_injection AGENT=vulnerable"
+	@echo "Or run directly: python3 evals/harness/runner.py"
 
 eval-all:
-	@echo "Not yet implemented"
+	python3 scripts/eval_all.py
 
 clean:
-	find . -name __pycache__ -exec rm -rf {} +
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
