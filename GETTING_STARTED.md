@@ -126,26 +126,38 @@ Key metrics to watch:
 
 ## Step 8 — Work Through the Labs (14-Day Plan)
 
-Each lab is self-contained in `labs/day-XX-name/`. Open the `brief.md` first, then follow the exploit and defense files.
+Each lab is self-contained in `labs/day-XX-name/`. Typical structure:
+
+```
+labs/day-XX-name/
+├── README.md         # Lab brief — read this first
+├── attack/           # Example exploit payloads (days 3+)
+├── defense/          # Defense implementation (days 3+)
+├── eval.py           # Per-lab eval runner
+├── DELIVERABLE.md    # What you should produce by the end of the day
+└── references.md     # Source material and further reading
+```
 
 ### Phase 1 — Foundations (Days 0–2)
 
 | Day | What to do |
 |---|---|
-| `day-00` | Read `brief.md` — honest self-assessment of your AI security knowledge gaps |
+| `day-00` | Read `labs/day-00-honest-assessment/README.md` — honest self-assessment of your AI security knowledge gaps |
 | `day-01` | Work through the STRIDE threat model in `docs/threat-model.md`, map to OWASP LLM Top 10 |
 | `day-02` | Set up your environment (Steps 1–7 above), run smoketest and evals end-to-end |
 
 ### Phase 2 — Attacks (Days 3–7)
 
-Run each attack against the **vulnerable agent**:
+Run each attack against the **vulnerable agent**. The runner needs the repo root on `PYTHONPATH`:
 
 ```bash
 # Example: run the direct injection dataset
-python3 evals/harness/runner.py \
-  --dataset evals/datasets/direct_injection.jsonl \
+PYTHONPATH=. python3 evals/harness/runner.py \
+  evals/datasets/direct_injection.jsonl \
   --agent vulnerable
 ```
+
+(Or equivalently: `python3 -m evals.harness.runner evals/datasets/direct_injection.jsonl --agent vulnerable`. The dataset is a positional argument, not a flag.)
 
 | Day | Attack | Dataset |
 |---|---|---|
@@ -155,7 +167,7 @@ python3 evals/harness/runner.py \
 | `day-06` | RAG poisoning — adversarial document in the corpus | `rag_poison.jsonl` |
 | `day-07` | Data exfiltration — leak corpus contents via tool args | `exfiltration.jsonl` |
 
-Each lab's `exploit/` folder contains example payloads. Study them, understand *why* they work, then move to the defense.
+Each lab's `attack/` folder contains example payloads. Study them, understand *why* they work, then move to the `defense/` folder.
 
 ### Phase 3 — Defenses (Days 8–11)
 
@@ -244,9 +256,9 @@ make test
 # Run full eval suite
 make eval-all
 
-# Run a specific dataset against a specific agent
-python3 evals/harness/runner.py \
-  --dataset evals/datasets/direct_injection.jsonl \
+# Run a specific dataset against a specific agent (dataset is positional)
+PYTHONPATH=. python3 evals/harness/runner.py \
+  evals/datasets/direct_injection.jsonl \
   --agent vulnerable
 
 # Run the vulnerable agent (with optional query)
@@ -286,9 +298,9 @@ make clean
 ```
 ai-security-lab/
 ├── agents/
-│   ├── reference/          # Canonical agent (read this first)
-│   ├── vulnerable/         # Attack target
-│   └── protected/          # Capstone output
+│   ├── reference/          # Abstract base class + tools (read first, not runnable)
+│   ├── vulnerable/         # Attack target — no defenses
+│   └── protected/          # Capstone — full defense stack
 ├── detectors/
 │   ├── rules.py            # Rule-based detector (17 rules, <1ms)
 │   ├── classifier.py       # LLM-as-judge detector (<500ms)
