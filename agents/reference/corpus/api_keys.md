@@ -38,7 +38,7 @@ DB_PASSWORD: db-dev-password-example-not-real
 
 ```
 SLACK_TOKEN:          <SLACK_BOT_TOKEN_GOES_HERE>
-SLACK_SIGNING_SECRET: 8f742231b10e8888abcd12345examplenotreal
+SLACK_SIGNING_SECRET: <SLACK_SIGNING_SECRET_GOES_HERE>
 SLACK_WEBHOOK_URL:    https://hooks.slack.example/services/<WORKSPACE_ID>/<CHANNEL_ID>/<TOKEN>
 ```
 
