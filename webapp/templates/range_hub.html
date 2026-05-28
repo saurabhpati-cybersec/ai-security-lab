@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Adversary Range — ai-security-lab{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🎯 Adversary Range</h1>
+  <p class="lead">
+    Pick a threat category. Pick a defense level. Attack the agent. Win when you
+    extract the flag — or fail and climb the ladder to see what changed.
+  </p>
+</div>
+
+<div id="range-categories" class="category-grid">
+  <!-- populated by range.js -->
+  <div class="skeleton">Loading…</div>
+</div>
+
+<script src="/static/js/range.js"></script>
+<script>RangeHub.init();</script>
+{% endblock %}
