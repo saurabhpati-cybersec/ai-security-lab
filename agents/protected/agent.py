@@ -151,11 +151,7 @@ class ProtectedAgent(BaseAgent):
     def _should_use_gateway(self) -> bool:
         if self._preset is None:
             return True
-        return (
-            self._preset.gateway_budgets
-            or self._preset.gateway_egress_blocks
-            or bool(self._preset.gateway_send_message_allowlist)
-        )
+        return self._preset.gateway_budgets or self._preset.gateway_egress_blocks
 
     def _should_filter_output(self) -> bool:
         if self._preset is None:
@@ -194,7 +190,8 @@ class ProtectedAgent(BaseAgent):
 
         # Defense 1b: ask the LLM judge too (opt-in). If it agrees with higher
         # confidence than the rules, we use its score for the block decision.
-        if self._classifier is not None:
+        # Only runs when the input-check layer is enabled by the preset.
+        if self._classifier is not None and self._should_run_input_check():
             judge = self._classifier.check(user_input)
             if judge.error is None and judge.confidence > block_confidence:
                 block_confidence = judge.confidence
