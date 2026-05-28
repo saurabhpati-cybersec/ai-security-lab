@@ -55,3 +55,44 @@ async def get_challenge_endpoint(category: str, level_str: str, reveal: int = 0)
     if not reveal:
         payload["fix_reveal"] = None
     return payload
+
+
+from pydantic import BaseModel
+
+from agents.protected.agent import ProtectedAgent  # noqa: E402
+from range.runner import (  # noqa: E402
+    build_preset_for_challenge,
+    run_challenge_with_agent,
+)
+
+
+class _RunBody(BaseModel):
+    challenge_id: str
+    payload: str
+    switchboard: dict | None = None  # optional layer-state override
+
+
+@router.post("/run")
+async def run_challenge_endpoint(body: _RunBody) -> dict:
+    # Parse "category/L{n}" from challenge_id.
+    if "/" not in body.challenge_id:
+        raise HTTPException(status_code=404, detail="Malformed challenge_id")
+    category, level_str = body.challenge_id.split("/", 1)
+    m = _LEVEL_PATTERN.match(level_str)
+    if m is None:
+        raise HTTPException(status_code=404, detail="Malformed challenge_id")
+    level = int(m.group(1))
+    try:
+        c = get_challenge(category, level)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    preset = build_preset_for_challenge(c)
+    if body.switchboard:
+        # Merge switchboard overrides field-by-field onto the resolved preset.
+        from range.schema import DefensePreset
+        preset = DefensePreset(**{**preset.model_dump(), **body.switchboard})
+
+    agent = ProtectedAgent(preset=preset)
+    result = run_challenge_with_agent(c, agent, payload=body.payload)
+    return result
