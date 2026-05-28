@@ -90,6 +90,82 @@
     $input.value = '';
   });
 
+  // ── Selection handling: pill + auto-fill ────────────────────────────────
+  const $pill = document.getElementById('helper-pill');
+  let lastSelectionText = '';
+
+  function clearPill() {
+    if ($pill) { $pill.hidden = true; }
+  }
+
+  function positionPillNearSelection(range) {
+    if (!$pill) return;
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) { clearPill(); return; }
+    // Place the pill just above the top-right of the selection, on top of the page.
+    const top = window.scrollY + rect.top - 32;
+    const left = window.scrollX + rect.right - 110;
+    $pill.style.top = Math.max(window.scrollY + 8, top) + 'px';
+    $pill.style.left = Math.max(8, left) + 'px';
+    $pill.hidden = false;
+  }
+
+  function onSelectionChange() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      clearPill();
+      lastSelectionText = '';
+      return;
+    }
+    const text = sel.toString().trim();
+    if (!text || text.length < 2) {
+      clearPill();
+      lastSelectionText = '';
+      return;
+    }
+    // Don't fire when the selection is inside the helper itself.
+    const range = sel.getRangeAt(0);
+    if ($panel.contains(range.startContainer) || $panel.contains(range.endContainer)) {
+      clearPill();
+      return;
+    }
+    lastSelectionText = text;
+    if ($panel.hidden) {
+      // Panel closed — show the pill near the selection.
+      positionPillNearSelection(range);
+    } else {
+      // Panel open — auto-fill the input with the quoted selection.
+      clearPill();
+      const quoted = text.split('\n').map((l) => '> ' + l).join('\n');
+      $input.value = quoted + '\n\n';
+      $input.focus();
+      // Move caret to the end.
+      $input.setSelectionRange($input.value.length, $input.value.length);
+    }
+  }
+
+  document.addEventListener('selectionchange', onSelectionChange);
+  // Hide pill on scroll (cheap — selection bbox would be stale anyway).
+  window.addEventListener('scroll', clearPill, { passive: true });
+
+  if ($pill) {
+    $pill.addEventListener('mousedown', (ev) => {
+      // Prevent the click from clearing the selection before we read it.
+      ev.preventDefault();
+    });
+    $pill.addEventListener('click', () => {
+      const text = lastSelectionText;
+      clearPill();
+      open();
+      if (text) {
+        const quoted = text.split('\n').map((l) => '> ' + l).join('\n');
+        $input.value = quoted + '\n\n';
+        $input.setSelectionRange($input.value.length, $input.value.length);
+        $input.focus();
+      }
+    });
+  }
+
   // Expose minimal API for the next two tasks.
   window.__helper = { open, close, toggle, history, $input, $thread };
 })();
