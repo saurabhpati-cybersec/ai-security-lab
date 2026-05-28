@@ -84,3 +84,25 @@ def test_post_run_returns_grader_result(monkeypatch):
     assert body["detector_evaded"] is True
     assert body["fired_layer"] is None
     assert body["agent_response"].startswith("result containing")
+
+
+def test_post_run_rejects_unknown_switchboard_key(monkeypatch):
+    """Unknown switchboard fields should NOT silently pass through."""
+    class _FakeAgent:
+        _last_tool_calls: list = []
+        _last_events: list = []
+        def __init__(self, **kw): pass
+        def run(self, _user): return "ok"
+        def _execute_tool(self, *_a, **_kw): pass
+
+    from webapp.api import range as range_api
+    monkeypatch.setattr(range_api, "ProtectedAgent", _FakeAgent)
+
+    r = _client().post("/api/range/run", json={
+        "challenge_id": "direct-injection/L0",
+        "payload": "hi",
+        "switchboard": {"bogus_key_that_does_not_exist": True},
+    })
+    assert r.status_code >= 400 and r.status_code < 500, (
+        f"expected 4xx, got {r.status_code}: {r.text}"
+    )

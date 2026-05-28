@@ -90,9 +90,14 @@ async def run_challenge_endpoint(body: _RunBody) -> dict:
     preset = build_preset_for_challenge(c)
     if body.switchboard:
         # Merge switchboard overrides field-by-field onto the resolved preset.
-        # Unknown keys will raise ValidationError (caught as 422 by FastAPI).
+        # extra="forbid" on DefensePreset makes unknown keys raise ValidationError;
+        # we surface that as a 422 so the caller gets a clear client-error response.
+        from pydantic import ValidationError
         from range.schema import DefensePreset
-        preset = DefensePreset(**{**preset.model_dump(), **body.switchboard})
+        try:
+            preset = DefensePreset(**{**preset.model_dump(), **body.switchboard})
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     from starter.python.log_schema import InMemoryLogWriter
     writer = InMemoryLogWriter()

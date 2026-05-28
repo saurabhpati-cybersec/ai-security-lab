@@ -14,7 +14,7 @@ class DefensePreset(BaseModel):
     canonical level shapes.
     """
 
-    model_config = ConfigDict(frozen=False, validate_assignment=True)
+    model_config = ConfigDict(frozen=False, validate_assignment=True, extra="forbid")
 
     rules_input: bool = False
     rules_input_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
