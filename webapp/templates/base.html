@@ -26,8 +26,12 @@
           <span class="nav-icon">🎓</span><span>Tutorial</span></a>
         <a href="/playground" class="{{ 'active' if page == 'playground' else '' }}">
           <span class="nav-icon">🥷</span><span>Attack playground</span></a>
+        <a href="/range" class="{{ 'active' if page == 'range' else '' }}">
+          <span class="nav-icon">🎯</span><span>Adversary Range</span></a>
         <a href="/eval" class="{{ 'active' if page == 'eval' else '' }}">
           <span class="nav-icon">📊</span><span>Eval runner</span></a>
+        <a href="/datasets" class="{{ 'active' if page == 'datasets' else '' }}">
+          <span class="nav-icon">📜</span><span>Datasets</span></a>
         <a href="/results" class="{{ 'active' if page == 'results' else '' }}">
           <span class="nav-icon">📁</span><span>Results history</span></a>
         <a href="/calibration" class="{{ 'active' if page == 'calibration' else '' }}">
@@ -67,6 +71,28 @@
           <div class="progress-bar-fg" id="prog-bar" style="width:0%"></div>
         </div>
       </div>
+
+      <div class="range-progress" id="range-progress" data-total="20">
+        Range: <span id="range-cleared">0</span>/20 cleared
+        <div class="bar"><div class="fill" id="range-fill" style="width:0%"></div></div>
+      </div>
+      <script>
+        (function () {
+          const total = 20;
+          let cleared = 0;
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith("range:")) {
+              try {
+                const v = JSON.parse(localStorage.getItem(k));
+                if (v && v.status === "cleared") cleared++;
+              } catch (_e) { /* ignore */ }
+            }
+          }
+          document.getElementById("range-cleared").textContent = cleared;
+          document.getElementById("range-fill").style.width = ((cleared / total) * 100).toFixed(0) + "%";
+        })();
+      </script>
 
       <button id="sidebar-tour" type="button" class="btn ghost" style="margin-top:14px;width:100%;justify-content:center;font-size:12px;padding:6px;">
         ↻ Replay tour
