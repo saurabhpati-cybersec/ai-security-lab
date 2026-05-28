@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ category }}/L{{ level }} — Adversary Range{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/range/{{ category }}" class="back-link">← {{ category }}</a>
+  <h1 id="challenge-title">Loading…</h1>
+</div>
+
+<div class="challenge-grid" data-challenge-id="{{ category }}/L{{ level }}">
+  <section class="challenge-main">
+    <div id="scenario-block" class="scenario-block">
+      <div class="skeleton">Loading scenario…</div>
+    </div>
+
+    <div class="attack-pane">
+      <label for="payload-input">Your payload</label>
+      <textarea id="payload-input" rows="6" placeholder="Type your attack…"></textarea>
+      <div id="hint-chips" class="hint-chips"></div>
+      <button id="attack-btn">▶ Attack</button>
+    </div>
+
+    <div id="verdict-banner" class="verdict-banner hidden"></div>
+    <div id="event-timeline" class="event-timeline"></div>
+  </section>
+
+  <aside class="challenge-aside">
+    <div class="tabs">
+      <button class="tab active" data-tab="defenses">Defenses</button>
+      <button class="tab" data-tab="diff">Diff vs L-1</button>
+      <button class="tab" data-tab="fix" id="fix-tab">Fix</button>
+    </div>
+    <div id="tab-defenses" class="tab-pane active">
+      <div id="defenses-list"></div>
+      <details class="switchboard">
+        <summary>Switchboard</summary>
+        <div id="switchboard-controls"></div>
+        <button id="reset-preset-btn">Reset to L{{ level }} preset</button>
+      </details>
+    </div>
+    <div id="tab-diff" class="tab-pane hidden">
+      <div id="diff-content"></div>
+    </div>
+    <div id="tab-fix" class="tab-pane hidden">
+      <div id="fix-content"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="/static/js/range.js"></script>
+<script>RangeChallenge.init("{{ category }}", {{ level }});</script>
+{% endblock %}
