@@ -39,3 +39,19 @@ def test_get_category_returns_levels():
 def test_get_category_unknown_returns_404():
     r = _client().get("/api/range/not-a-category")
     assert r.status_code == 404
+
+
+def test_get_challenge_returns_payload_without_fix_reveal_by_default():
+    r = _client().get("/api/range/direct-injection/L0")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == "direct-injection/L0"
+    assert "scenario" in body
+    assert "hints" in body
+    # L0 has no fix_reveal anyway; assert the key exists and is null.
+    assert body.get("fix_reveal") is None
+
+
+def test_get_challenge_unknown_returns_404():
+    r = _client().get("/api/range/direct-injection/L9")
+    assert r.status_code == 404
