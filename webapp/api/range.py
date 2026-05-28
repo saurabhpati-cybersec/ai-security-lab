@@ -90,9 +90,12 @@ async def run_challenge_endpoint(body: _RunBody) -> dict:
     preset = build_preset_for_challenge(c)
     if body.switchboard:
         # Merge switchboard overrides field-by-field onto the resolved preset.
+        # Unknown keys will raise ValidationError (caught as 422 by FastAPI).
         from range.schema import DefensePreset
         preset = DefensePreset(**{**preset.model_dump(), **body.switchboard})
 
-    agent = ProtectedAgent(preset=preset)
-    result = run_challenge_with_agent(c, agent, payload=body.payload)
+    from starter.python.log_schema import InMemoryLogWriter
+    writer = InMemoryLogWriter()
+    agent = ProtectedAgent(preset=preset, log_writer=writer)
+    result = run_challenge_with_agent(c, agent, payload=body.payload, log_writer=writer)
     return result

@@ -29,9 +29,12 @@ def build_agent_for_challenge(challenge: Challenge):
     """Instantiate a ProtectedAgent configured for *challenge*."""
     # Local import to avoid LLM-client construction at module import time.
     from agents.protected.agent import ProtectedAgent
+    from starter.python.log_schema import InMemoryLogWriter
 
     preset = build_preset_for_challenge(challenge)
-    return ProtectedAgent(preset=preset)
+    writer = InMemoryLogWriter()
+    agent = ProtectedAgent(preset=preset, log_writer=writer)
+    return agent, writer
 
 
 def run_challenge_with_agent(
@@ -39,35 +42,55 @@ def run_challenge_with_agent(
     agent: Any,
     *,
     payload: str,
+    log_writer: Any | None = None,
 ) -> dict[str, Any]:
     """Run *agent* on *payload* and grade the result against *challenge*.
 
+    ``log_writer`` should be an ``InMemoryLogWriter`` that was passed to the
+    agent's constructor.  When provided, events are read from its ``.events``
+    list after the run, and ``tool_calls`` are derived from ``tool_call``-type
+    events (so that the gateway path and the L0 direct-dispatch path are both
+    captured correctly).
+
+    When ``log_writer`` is *not* supplied the runner falls back to the legacy
+    ``_last_events`` / ``_last_tool_calls`` accessors so that existing fake
+    agents used in unit tests continue to work unchanged.
+
     Returns a dict with the same shape the API endpoint emits:
-      {events, goal_achieved, detector_evaded, fired_layer, agent_response}
+      {events, tool_calls, goal_achieved, detector_evaded, fired_layer,
+       agent_response}
     """
-    # Use the instrumented helper from the eval harness when the agent supports
-    # _execute_tool interception (i.e. real ProtectedAgent / VulnerableAgent).
-    # Fall back to a plain .run() call for lightweight fake agents used in tests.
-    if hasattr(agent, "_execute_tool"):
-        from evals.harness.runner import _run_agent_instrumented
-        response, tool_calls = _run_agent_instrumented(agent, payload)
+    response = agent.run(payload)
+
+    if log_writer is not None:
+        # Primary path: read all events captured by the in-memory writer.
+        raw_events: list[dict] = [
+            ev.model_dump(mode="json") for ev in log_writer.events
+        ]
+        # Derive tool_calls from tool_call-type events (works for both the
+        # gateway path and the L0 dispatch path).
+        tool_calls: list[dict] = [
+            {"name": ev["tool_name"], "input": ev.get("tool_args_redacted") or {}}
+            for ev in raw_events
+            if ev.get("event_type") == "tool_call" and ev.get("tool_name")
+        ]
     else:
-        response = agent.run(payload)
+        # Legacy fallback for lightweight fake agents used in unit tests.
+        raw_events = list(getattr(agent, "_last_events", []))
         tool_calls = list(getattr(agent, "_last_tool_calls", []))
 
-    events = list(getattr(agent, "_last_events", []))  # reference agent appends here
-
-    blocked, fired_layer = summarize_blockage(events)
+    blocked, fired_layer = summarize_blockage(raw_events)
 
     goal_achieved = grade(
         challenge.grader_goal,
         response=response,
         tool_calls=tool_calls,
-        events=events,
+        events=raw_events,
     )
 
     return {
-        "events": events,
+        "events": raw_events,
+        "tool_calls": tool_calls,
         "goal_achieved": goal_achieved,
         "detector_evaded": not blocked,
         "fired_layer": fired_layer,

@@ -4,6 +4,7 @@ from __future__ import annotations
 from range.runner import build_preset_for_challenge, run_challenge_with_agent
 from range.schema import DefensePreset
 from range.loader import get_challenge, reload_cache
+from starter.python.log_schema import InMemoryLogWriter, make_event
 
 
 def setup_function(_fn) -> None:
@@ -83,3 +84,65 @@ def test_run_challenge_blocked_when_policy_violation():
     assert result["goal_achieved"] is False
     assert result["detector_evaded"] is False
     assert result["fired_layer"] == "RulesDetector"
+
+
+# ---------------------------------------------------------------------------
+# BUG-1 tests: event capture via InMemoryLogWriter + tool_call extraction
+# ---------------------------------------------------------------------------
+
+class _LogWriterAgent:
+    """Fake agent that writes events into its log_writer (simulating ProtectedAgent)."""
+
+    def __init__(self, log_writer: InMemoryLogWriter) -> None:
+        self.log_writer = log_writer
+
+    def run(self, _user_input: str) -> str:
+        # Simulate model_call event (always emitted).
+        self.log_writer.write(make_event(
+            agent_id="test-agent",
+            session_id="sess-1",
+            step=0,
+            event_type="model_call",
+            model="claude-test",
+        ))
+        # Simulate a tool_call event.
+        self.log_writer.write(make_event(
+            agent_id="test-agent",
+            session_id="sess-1",
+            step=0,
+            event_type="tool_call",
+            tool_name="web_fetch",
+            tool_args_redacted={"url": "https://example.com"},
+        ))
+        # Simulate final_response.
+        self.log_writer.write(make_event(
+            agent_id="test-agent",
+            session_id="sess-1",
+            step=0,
+            event_type="final_response",
+        ))
+        return "fetched content"
+
+
+def test_run_challenge_events_non_empty_with_log_writer():
+    """events list must be non-empty when a log writer captured events."""
+    c = get_challenge("direct-injection", 0)
+    writer = InMemoryLogWriter()
+    agent = _LogWriterAgent(writer)
+    result = run_challenge_with_agent(c, agent, payload="hi", log_writer=writer)
+    assert len(result["events"]) >= 1, "expected at least one captured event"
+    assert any(
+        ev.get("event_type") == "model_call" for ev in result["events"]
+    ), "expected a model_call event"
+
+
+def test_run_challenge_tool_calls_derived_from_log_writer_events():
+    """tool_calls must reflect tool_call events from the log writer."""
+    c = get_challenge("direct-injection", 0)
+    writer = InMemoryLogWriter()
+    agent = _LogWriterAgent(writer)
+    result = run_challenge_with_agent(c, agent, payload="hi", log_writer=writer)
+    assert len(result["tool_calls"]) == 1, "expected exactly one tool call"
+    tc = result["tool_calls"][0]
+    assert tc["name"] == "web_fetch"
+    assert tc["input"] == {"url": "https://example.com"}
