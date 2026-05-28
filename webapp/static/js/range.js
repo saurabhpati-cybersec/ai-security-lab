@@ -223,6 +223,123 @@ window.RangeChallenge = {
     });
   },
 
+  _layerConfig: [
+    { key: "rules_input",         label: "Input rules check" },
+    { key: "rules_tool_result",   label: "Tool-result rules check" },
+    { key: "gateway_budgets",     label: "Gateway: budgets" },
+    { key: "gateway_egress_blocks", label: "Gateway: egress blocks" },
+    { key: "output_filter",       label: "Output filter" },
+    { key: "classifier",          label: "Classifier (LLM judge)" },
+  ],
+
+  _currentPreset() {
+    if (this.challenge.preset_overrides) {
+      return this.challenge.preset_overrides;
+    }
+    const base = { rules_input: false, rules_tool_result: false, gateway_budgets: false,
+                   gateway_egress_blocks: false, output_filter: false, classifier: false };
+    const lvl = this.challenge.preset_base_level;
+    if (lvl >= 1) base.rules_input = true;
+    if (lvl >= 2) { base.rules_tool_result = true; base.gateway_budgets = true; base.gateway_egress_blocks = true; }
+    if (lvl >= 3) base.output_filter = true;
+    return base;
+  },
+
+  renderDefenses() {
+    const preset = this.switchboardOverrides || this._currentPreset();
+    const root = document.getElementById("defenses-list");
+    root.innerHTML = "";
+    for (const { key, label } of this._layerConfig) {
+      const on = !!preset[key];
+      const row = document.createElement("div");
+      row.className = `defense-row defense-${key} ${on ? "on" : "off"}`;
+      row.dataset.layerKey = key;
+      row.innerHTML = `<span class="pill ${on ? "pill-on" : "pill-off"}">${on ? "ON" : "OFF"}</span> ${label}`;
+      root.appendChild(row);
+    }
+
+    const sb = document.getElementById("switchboard-controls");
+    sb.innerHTML = "";
+    for (const { key, label } of this._layerConfig) {
+      const on = !!preset[key];
+      const wrap = document.createElement("label");
+      wrap.className = "switch";
+      wrap.innerHTML = `<input type="checkbox" data-layer="${key}" ${on ? "checked" : ""}/> ${label}`;
+      sb.appendChild(wrap);
+    }
+  },
+
+  bindSwitchboardChange() {
+    const sb = document.getElementById("switchboard-controls");
+    sb.addEventListener("change", () => {
+      const overrides = {};
+      sb.querySelectorAll("input[type=checkbox]").forEach(cb => {
+        overrides[cb.dataset.layer] = cb.checked;
+      });
+      this.switchboardOverrides = overrides;
+      this.switchboardDirty = true;
+      this.renderDefenses();
+    });
+  },
+
+  bindSwitchboardReset() {
+    document.getElementById("reset-preset-btn").onclick = () => {
+      this.switchboardOverrides = null;
+      this.switchboardDirty = false;
+      this.renderDefenses();
+    };
+  },
+
+  highlightFiredDefense(firedLayer) {
+    document.querySelectorAll(".defense-row").forEach(el => el.classList.remove("fired"));
+    if (!firedLayer) return;
+    const map = {
+      "RulesDetector": ["rules_input", "rules_tool_result"],
+      "ToolGateway":   ["gateway_budgets", "gateway_egress_blocks"],
+      "OutputFilter":  ["output_filter"],
+      "ClassifierDetector": ["classifier"],
+    };
+    const keys = map[firedLayer] || [];
+    keys.forEach(k => {
+      const el = document.querySelector(`.defense-row[data-layer-key="${k}"]`);
+      if (el) el.classList.add("fired");
+    });
+  },
+
+  renderDiff() {
+    const root = document.getElementById("diff-content");
+    root.innerHTML = this.challenge.diff_from_prev
+      ? this._md(this.challenge.diff_from_prev)
+      : "<em>No diff (L0 is the bottom of the ladder).</em>";
+  },
+
+  renderFix() {
+    const root = document.getElementById("fix-content");
+    const tab = document.getElementById("fix-tab");
+    if (this.level === 3 && this.challenge.fix_reveal) {
+      root.innerHTML = this._md(this.challenge.fix_reveal);
+      tab.classList.remove("hidden");
+    } else {
+      root.innerHTML = "";
+      tab.classList.add("hidden");
+    }
+  },
+
+  bindTabs() {
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        document.querySelectorAll(".tab-pane").forEach(p => p.classList.add("hidden"));
+        const pane = document.getElementById(`tab-${tab.dataset.tab}`);
+        if (pane) {
+          pane.classList.remove("hidden");
+          pane.classList.add("active");
+        }
+      };
+    });
+  },
+
   // Helpers
   _escape(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; },
   _md(s) {
