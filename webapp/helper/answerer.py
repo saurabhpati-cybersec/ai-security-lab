@@ -78,3 +78,81 @@ def build_prompt(
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
 
     return system, messages
+
+
+# ───────────── Streaming synthesis ────────────────────────────────────────
+#
+# Mirrors the proven pattern in `webapp/api/chat.py`: Anthropic Claude Haiku
+# preferred, OpenAI GPT-4o-mini fallback. Real token streaming via the SDKs'
+# native stream APIs (the agent adapter in starter/python/ is non-streaming
+# and therefore not reused here).
+
+import os
+from typing import AsyncIterator
+
+
+def has_any_key() -> bool:
+    return bool(
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    )
+
+
+def _client_anthropic():
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def _client_openai():
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import openai
+    except ImportError:
+        return None
+    return openai.OpenAI(api_key=api_key)
+
+
+async def stream_synthesis(
+    system: str, messages: list[dict[str, Any]]
+) -> AsyncIterator[str]:
+    """Yield text deltas. Anthropic preferred; OpenAI fallback.
+
+    Raises RuntimeError("no_key") if neither key is set — the API route
+    catches this and switches to search-only mode.
+    """
+    client_a = _client_anthropic()
+    if client_a is not None:
+        with client_a.messages.stream(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=system,
+            messages=messages,
+        ) as stream:
+            for text in stream.text_stream:
+                if text:
+                    yield text
+        return
+
+    client_o = _client_openai()
+    if client_o is not None:
+        openai_msgs = [{"role": "system", "content": system}, *messages]
+        stream = client_o.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=openai_msgs,
+            max_tokens=400,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                yield delta
+        return
+
+    raise RuntimeError("no_key")
