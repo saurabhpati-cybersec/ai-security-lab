@@ -34,6 +34,7 @@ from webapp.api import labs as labs_api  # noqa: E402
 from webapp.api import runs as runs_api  # noqa: E402
 from webapp.api import summary as summary_api  # noqa: E402
 from webapp.api import tests as tests_api  # noqa: E402
+from webapp.api import range as range_api  # noqa: E402, A004
 
 app = FastAPI(title="ai-security-lab", docs_url="/api/swagger", redoc_url="/api/redoc")
 
@@ -67,6 +68,7 @@ app.include_router(summary_api.router, prefix="/api")
 app.include_router(docs_api.router, prefix="/api")
 app.include_router(chat_api.router, prefix="/api")
 app.include_router(helper_api.router, prefix="/api")
+app.include_router(range_api.router, prefix="/api")
 
 
 # ── Pages ────────────────────────────────────────────────────────────────
@@ -102,6 +104,11 @@ async def page_playground(request: Request) -> HTMLResponse:
 @app.get("/eval", response_class=HTMLResponse)
 async def page_eval(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "eval.html", _ctx(request, "eval"))
+
+
+@app.get("/datasets", response_class=HTMLResponse)
+async def page_datasets(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "datasets.html", _ctx(request, "datasets"))
 
 
 @app.get("/results", response_class=HTMLResponse)
