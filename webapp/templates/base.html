@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}ai-security-lab{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">ai-security-lab</div>
+      <div class="tagline">attack · defend · measure</div>
+
+      <nav>
+        <a href="/" class="{{ 'active' if page == 'welcome' else '' }}">
+          <span class="nav-icon">🏠</span><span>Welcome</span></a>
+        <a href="/docs/tutorial" class="{{ 'active' if page == 'tutorial' else '' }}">
+          <span class="nav-icon">🎓</span><span>Tutorial</span></a>
+        <a href="/playground" class="{{ 'active' if page == 'playground' else '' }}">
+          <span class="nav-icon">🥷</span><span>Attack playground</span></a>
+        <a href="/eval" class="{{ 'active' if page == 'eval' else '' }}">
+          <span class="nav-icon">📊</span><span>Eval runner</span></a>
+        <a href="/results" class="{{ 'active' if page == 'results' else '' }}">
+          <span class="nav-icon">📁</span><span>Results history</span></a>
+        <a href="/calibration" class="{{ 'active' if page == 'calibration' else '' }}">
+          <span class="nav-icon">🎚️</span><span>Calibration</span></a>
+        <a href="/labs" class="{{ 'active' if page == 'labs' else '' }}">
+          <span class="nav-icon">📚</span><span>Day walkthrough</span></a>
+        <a href="/docs" class="{{ 'active' if page == 'docs' else '' }}">
+          <span class="nav-icon">📖</span><span>Docs</span></a>
+        <a href="/tests" class="{{ 'active' if page == 'tests' else '' }}">
+          <span class="nav-icon">🧪</span><span>Tests</span></a>
+        <a href="/settings" class="{{ 'active' if page == 'settings' else '' }}">
+          <span class="nav-icon">⚙️</span><span>Settings</span></a>
+      </nav>
+
+      <div class="env-status">
+        <div class="env-row">
+          <span><span class="dot {{ 'ok' if has_anthropic else 'miss' }}"></span>Anthropic</span>
+          <span class="muted">{{ 'set' if has_anthropic else 'missing' }}</span>
+        </div>
+        <div class="env-row">
+          <span><span class="dot {{ 'ok' if has_openai else 'miss' }}"></span>OpenAI</span>
+          <span class="muted">{{ 'set' if has_openai else 'missing' }}</span>
+        </div>
+        {% if not has_anthropic and not has_openai %}
+          <a href="/settings" class="btn ghost" style="margin-top:10px;width:100%;justify-content:center;">
+            Add API key
+          </a>
+        {% endif %}
+      </div>
+
+      <div class="progress-tracker" id="progress-tracker">
+        <div class="head">
+          <span>Progress</span>
+          <strong><span id="prog-count">0</span> / 15</strong>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fg" id="prog-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <button id="sidebar-tour" type="button" class="btn ghost" style="margin-top:14px;width:100%;justify-content:center;font-size:12px;padding:6px;">
+        ↻ Replay tour
+      </button>
+    </aside>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script type="module">
+    import '/static/js/glossary.js';
+    import { maybeStartTour, forceStartTour } from '/static/js/tour.js';
+
+    // Sidebar progress tracker — pulls completed labs from localStorage.
+    function refreshProgress() {
+      const completed = JSON.parse(localStorage.getItem('aisl-completed-labs') || '[]');
+      const n = Math.min(completed.length, 15);
+      document.getElementById('prog-count').textContent = n;
+      document.getElementById('prog-bar').style.width = ((n / 15) * 100) + '%';
+    }
+    refreshProgress();
+    window.addEventListener('storage', refreshProgress);
+    // Re-check on focus too, in case another tab updated.
+    window.addEventListener('focus', refreshProgress);
+    // Custom event from labs page so it updates instantly.
+    document.addEventListener('aisl:progress-changed', refreshProgress);
+
+    document.getElementById('sidebar-tour').addEventListener('click', forceStartTour);
+
+    // Only run tour on welcome page first visit.
+    if (window.location.pathname === '/') {
+      maybeStartTour();
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+  {% include "_helper.html" %}
+</body>
+</html>
