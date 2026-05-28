@@ -97,7 +97,7 @@ async def helper_ask(req: HelperAskRequest) -> StreamingResponse:
 
         # 1. Retrieve
         query_text = (req.question + " " + (req.selection or "")).strip()
-        ranked = _retriever.top_k(query_text, k=5, floor=0.0)
+        ranked = _retriever.top_k(query_text, k=5, floor=0.5)
         chunks = [c for c, _ in ranked]
 
         # 2. Citations event (always — even if empty)

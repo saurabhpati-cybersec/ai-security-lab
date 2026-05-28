@@ -19,9 +19,17 @@ def app_with_helper():
     app = FastAPI()
     chunks = [
         Chunk("docs/threat-model.md", "STRIDE", "stride",
-              "## STRIDE\nThe lab uses STRIDE to enumerate threats."),
+              "## STRIDE\nThe lab uses STRIDE to enumerate threats against agents."),
         Chunk("docs/glossary.md", "ASR", "asr",
-              "## ASR\nAttack success rate."),
+              "## ASR\nAttack success rate, computed as failed cases over total."),
+        Chunk("docs/agents.md", "Agents", "agents",
+              "## Agents\nThe reference agent has three tools and a system prompt."),
+        Chunk("docs/tools.md", "Tools", "tools",
+              "## Tools\nweb_fetch, read_doc, and send_message form the tool surface."),
+        Chunk("docs/eval.md", "Evals", "evals",
+              "## Evals\nThe harness loads JSONL datasets and reports pass rates."),
+        Chunk("docs/calibration.md", "Calibration", "calibration",
+              "## Calibration\nMove the threshold slider and watch TPR/FPR move."),
     ]
     helper_api.init_retriever(BM25Retriever(chunks))
     app.include_router(helper_api.router, prefix="/api")
@@ -51,7 +59,7 @@ def test_health_returns_chunk_count_and_paths(app_with_helper):
     r = client.get("/api/helper/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["chunk_count"] == 2
+    assert body["chunk_count"] == 6
     assert "docs/threat-model.md" in body["indexed_paths"]
     assert "has_anthropic" in body and "has_openai" in body
 
