@@ -126,6 +126,26 @@ async def page_labs(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "labs.html", _ctx(request, "labs"))
 
 
+@app.get("/range", response_class=HTMLResponse)
+async def page_range_hub(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "range_hub.html", _ctx(request, "range"))
+
+
+@app.get("/range/{category}", response_class=HTMLResponse)
+async def page_range_category(request: Request, category: str) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "range_category.html", _ctx(request, "range", category=category)
+    )
+
+
+@app.get("/range/{category}/L{level}", response_class=HTMLResponse)
+async def page_range_challenge(request: Request, category: str, level: int) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "range_challenge.html",
+        _ctx(request, "range", category=category, level=level),
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def page_settings(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "settings.html", _ctx(request, "settings"))
