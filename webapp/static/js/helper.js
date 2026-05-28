@@ -24,6 +24,8 @@
   // ── State ───────────────────────────────────────────────────────────────
   /** Conversation history sent to the backend. role: 'user'|'assistant', content: str. */
   const history = [];
+  /** Most-recent selection text auto-filled into the input. Cleared on submit. */
+  let pendingSelection = null;
 
   // ── Panel open/close ────────────────────────────────────────────────────
   function open() {
@@ -71,6 +73,7 @@
   // ── Clear conversation ──────────────────────────────────────────────────
   $clear.addEventListener('click', () => {
     history.length = 0;
+    pendingSelection = null;
     $thread.innerHTML = '';
     // Rebuild empty state.
     const empty = document.createElement('div');
@@ -136,7 +139,7 @@
   // ── SSE ask flow ────────────────────────────────────────────────────────
   let inFlight = null; // AbortController of the current request, if any
 
-  async function ask(question) {
+  async function ask(question, selection) {
     if (inFlight) inFlight.abort();
     inFlight = new AbortController();
 
@@ -162,7 +165,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           question,
-          selection: null, // selection is already in the question via auto-fill
+          selection: selection, // raw selection text — server runs the lab's RulesDetector on it
           page: window.location.pathname,
           history: history.slice(0, -1), // exclude the just-pushed user turn
         }),
@@ -221,8 +224,10 @@
     ev.preventDefault();
     const q = $input.value.trim();
     if (!q) return;
+    const sel = pendingSelection;
+    pendingSelection = null;
     $input.value = '';
-    ask(q);
+    ask(q, sel);
   });
 
   // ── Selection handling: pill + auto-fill ────────────────────────────────
@@ -273,6 +278,7 @@
       clearPill();
       const quoted = text.split('\n').map((l) => '> ' + l).join('\n');
       $input.value = quoted + '\n\n';
+      pendingSelection = text;
       $input.focus();
       // Move caret to the end.
       $input.setSelectionRange($input.value.length, $input.value.length);
@@ -295,6 +301,7 @@
       if (text) {
         const quoted = text.split('\n').map((l) => '> ' + l).join('\n');
         $input.value = quoted + '\n\n';
+        pendingSelection = text;
         $input.setSelectionRange($input.value.length, $input.value.length);
         $input.focus();
       }

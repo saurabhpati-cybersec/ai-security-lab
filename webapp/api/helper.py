@@ -4,7 +4,7 @@ Streams Server-Sent Events:
     event: citations  — fired once, payload {citations: [{n, path, anchor, heading, url}]}
     event: token      — fired repeatedly, payload {delta: str}
     event: done       — fired once at end-of-stream, payload {}
-    event: error      — fired and stream closed on failure, payload {message}
+    event: error      — emitted on synthesis failure, then the generator ends (no further events)
 """
 
 from __future__ import annotations
@@ -113,8 +113,26 @@ async def helper_ask(req: HelperAskRequest) -> StreamingResponse:
         ]
         yield _sse("citations", {"citations": citations_payload})
 
-        # 3. No-key fallback — emit search-only snippets, no LLM call.
+        # 3. Hardening — runs whether or not a key is set so the dogfood demo
+        # works in both synthesized and search-only mode.
+        hardening = check_selection(req.selection)
+
+        # 4. No-key fallback — emit a hardening warning (if any) plus search-only snippets.
         if not has_any_key():
+            if hardening.triggered:
+                yield _sse(
+                    "token",
+                    {
+                        "delta": (
+                            f"⚠️ **Selection flagged by the lab's input-side defense** "
+                            f"(rule: `{hardening.rule_name}`, confidence "
+                            f"{hardening.confidence:.2f}). That selection is a "
+                            "prompt-injection attempt. Below are related snippets — "
+                            "in synthesized mode the LLM would explain the technique "
+                            "without complying.\n\n"
+                        )
+                    },
+                )
             if not chunks:
                 yield _sse(
                     "token",
@@ -139,8 +157,7 @@ async def helper_ask(req: HelperAskRequest) -> StreamingResponse:
             yield _sse("done", {})
             return
 
-        # 4. Hardening + prompt build + synthesize
-        hardening = check_selection(req.selection)
+        # 5. Synthesize (key is available; hardening result already in hand)
         history_dicts = [{"role": m.role, "content": m.content} for m in req.history]
         system, messages = build_prompt(
             question=req.question,
