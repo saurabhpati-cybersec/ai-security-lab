@@ -80,14 +80,149 @@
     $thread.appendChild(empty);
   });
 
-  // ── Form submit (real ask flow comes in Task 11) ────────────────────────
+  // ── Markdown-lite rendering (citations + code + bold + links) ───────────
+  // We do NOT pull in a full markdown library — keep the helper light.
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+  }
+  function renderMarkdownLite(text, citationsMap) {
+    let html = escapeHtml(text);
+    // Inline code first to avoid stomping on its content.
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Bold.
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Quoted lines.
+    html = html.replace(/(^|\n)&gt; ([^\n]+)/g, '$1<blockquote>$2</blockquote>');
+    // Citations: [1], [2] → chips (clickable iff the server returned a url).
+    html = html.replace(/\[(\d+)\]/g, (m, n) => {
+      const cite = citationsMap[Number(n)];
+      if (!cite) return m;
+      const tip = escapeHtml(cite.path) + (cite.heading ? ' — ' + escapeHtml(cite.heading) : '');
+      if (cite.url) {
+        return `<a class="helper-citation" href="${cite.url}" target="_blank" rel="noopener" title="${tip}">${n}</a>`;
+      }
+      // No rendered route for this corpus path — render a non-clickable chip with a tooltip.
+      return `<span class="helper-citation" title="${tip}">${n}</span>`;
+    });
+    // Paragraph breaks.
+    html = html.replace(/\n\n+/g, '</p><p>');
+    return '<p>' + html + '</p>';
+  }
+
+  // ── Message rendering ───────────────────────────────────────────────────
+  function clearEmptyState() {
+    const empty = $thread.querySelector('.helper-empty');
+    if (empty) empty.remove();
+  }
+  function appendUserBubble(content) {
+    clearEmptyState();
+    const node = document.createElement('div');
+    node.className = 'helper-msg helper-msg-user';
+    node.innerHTML = renderMarkdownLite(content, {});
+    $thread.appendChild(node);
+    $thread.scrollTop = $thread.scrollHeight;
+  }
+  function appendAssistantBubble() {
+    const node = document.createElement('div');
+    node.className = 'helper-msg helper-msg-assistant';
+    node.innerHTML = '<p class="helper-streaming">…</p>';
+    $thread.appendChild(node);
+    $thread.scrollTop = $thread.scrollHeight;
+    return node;
+  }
+
+  // ── SSE ask flow ────────────────────────────────────────────────────────
+  let inFlight = null; // AbortController of the current request, if any
+
+  async function ask(question) {
+    if (inFlight) inFlight.abort();
+    inFlight = new AbortController();
+
+    appendUserBubble(question);
+    history.push({ role: 'user', content: question });
+
+    const bubble = appendAssistantBubble();
+    let buffer = '';
+    let citationsMap = {};
+
+    function rerender() {
+      bubble.innerHTML = renderMarkdownLite(buffer, citationsMap);
+      $thread.scrollTop = $thread.scrollHeight;
+    }
+    function showWarning(message) {
+      bubble.innerHTML = `<div class="helper-warn">${escapeHtml(message)}</div>` +
+                         '<p class="helper-streaming">…</p>';
+    }
+
+    try {
+      const resp = await fetch('/api/helper/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          selection: null, // selection is already in the question via auto-fill
+          page: window.location.pathname,
+          history: history.slice(0, -1), // exclude the just-pushed user turn
+        }),
+        signal: inFlight.signal,
+      });
+      if (!resp.ok || !resp.body) {
+        showWarning(`Request failed: ${resp.status} ${resp.statusText}`);
+        return;
+      }
+
+      // Stream the SSE body.
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = pending.indexOf('\n\n')) >= 0) {
+          const raw = pending.slice(0, idx);
+          pending = pending.slice(idx + 2);
+          const lines = raw.split('\n');
+          let event = 'message';
+          let data = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            else if (line.startsWith('data:')) data += line.slice(5).trim();
+          }
+          let payload;
+          try { payload = JSON.parse(data); } catch { payload = {}; }
+          if (event === 'citations') {
+            (payload.citations || []).forEach((c) => { citationsMap[c.n] = c; });
+          } else if (event === 'token') {
+            buffer += payload.delta || '';
+            rerender();
+          } else if (event === 'done') {
+            // Final render strips the streaming cursor.
+            rerender();
+            history.push({ role: 'assistant', content: buffer });
+          } else if (event === 'error') {
+            showWarning(payload.message || 'Helper failed.');
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        showWarning(String(err));
+      }
+    } finally {
+      inFlight = null;
+    }
+  }
+
   $form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const q = $input.value.trim();
     if (!q) return;
-    // Placeholder — Task 11 replaces this with the SSE ask flow.
-    console.log('[helper] would ask:', q);
     $input.value = '';
+    ask(q);
   });
 
   // ── Selection handling: pill + auto-fill ────────────────────────────────
