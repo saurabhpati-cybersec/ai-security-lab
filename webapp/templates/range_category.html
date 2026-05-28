@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ category }} — Adversary Range{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/range" class="back-link">← All categories</a>
+  <h1 id="category-title">{{ category }}</h1>
+  <p id="category-threat-ref" class="meta"></p>
+</div>
+
+<div id="range-levels" data-category="{{ category }}" class="level-list">
+  <div class="skeleton">Loading levels…</div>
+</div>
+
+<script src="/static/js/range.js"></script>
+<script>RangeCategory.init("{{ category }}");</script>
+{% endblock %}
