@@ -91,3 +91,147 @@ window.RangeCategory = {
     }
   },
 };
+
+window.RangeChallenge = {
+  challenge: null,
+  category: null,
+  level: null,
+  switchboardDirty: false,
+  switchboardOverrides: null,
+
+  async init(category, level) {
+    this.category = category;
+    this.level = level;
+    const reveal = level === 3 ? "?reveal=1" : "";
+    this.challenge = await fetch(`/api/range/${category}/L${level}${reveal}`).then(r => r.json());
+
+    document.getElementById("challenge-title").textContent =
+      `${this.challenge.title} — L${level}`;
+    this.renderScenario();
+    this.renderHints();
+    this.renderDefenses();
+    this.renderDiff();
+    this.renderFix();
+    this.bindAttackButton();
+    this.bindTabs();
+    this.bindSwitchboardReset();
+    this.bindSwitchboardChange();
+
+    // Prefill the payload textarea if the challenge supplies one.
+    if (this.challenge.example_payload) {
+      document.getElementById("payload-input").value = this.challenge.example_payload;
+    }
+  },
+
+  renderScenario() {
+    const el = document.getElementById("scenario-block");
+    el.innerHTML = `
+      <div class="scenario-text">${this._md(this.challenge.scenario)}</div>
+      <div class="flag-box">🎯 Goal: <strong>${this._escape(this.challenge.flag)}</strong></div>
+    `;
+  },
+
+  renderHints() {
+    const root = document.getElementById("hint-chips");
+    root.innerHTML = "";
+    this.challenge.hints.forEach((h, i) => {
+      const btn = document.createElement("button");
+      btn.className = "hint-chip";
+      btn.textContent = `Hint ${i + 1}`;
+      btn.onclick = () => {
+        btn.textContent = h;
+        btn.disabled = true;
+        btn.classList.add("revealed");
+      };
+      root.appendChild(btn);
+    });
+  },
+
+  bindAttackButton() {
+    document.getElementById("attack-btn").onclick = () => this.runAttack();
+  },
+
+  async runAttack() {
+    const payload = document.getElementById("payload-input").value.trim();
+    if (!payload) return;
+    const btn = document.getElementById("attack-btn");
+    btn.disabled = true;
+    btn.textContent = "Running…";
+    try {
+      const body = {
+        challenge_id: this.challenge.id,
+        payload,
+      };
+      if (this.switchboardOverrides) {
+        body.switchboard = this.switchboardOverrides;
+      }
+      const result = await fetch("/api/range/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+
+      this.renderVerdict(result);
+      this.renderTimeline(result.events || []);
+      this.highlightFiredDefense(result.fired_layer);
+
+      const canonicalRun = !this.switchboardOverrides;
+      RangeProgress.recordAttempt(this.challenge.id, {
+        canonicalRun,
+        goalAchieved: result.goal_achieved,
+        switchboardDirty: this.switchboardDirty && !canonicalRun,
+      });
+    } catch (e) {
+      this.renderVerdict({ error: String(e) });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "▶ Attack";
+    }
+  },
+
+  renderVerdict(result) {
+    const el = document.getElementById("verdict-banner");
+    el.classList.remove("hidden", "verdict-win", "verdict-blocked", "verdict-neutral", "verdict-error");
+    if (result.error) {
+      el.classList.add("verdict-error");
+      el.textContent = `Error: ${result.error}`;
+      return;
+    }
+    if (result.goal_achieved) {
+      el.classList.add("verdict-win");
+      el.innerHTML = `<strong>✓ GOAL ACHIEVED</strong> · 🛡 detector evaded: ${result.detector_evaded ? "yes" : "no"}`;
+    } else if (result.fired_layer) {
+      el.classList.add("verdict-blocked");
+      el.innerHTML = `<strong>⛔ BLOCKED BY ${this._escape(result.fired_layer)}</strong> · 🛡 detector evaded: no`;
+    } else {
+      el.classList.add("verdict-neutral");
+      el.innerHTML = `· not blocked, goal not achieved · 🛡 detector evaded: ${result.detector_evaded ? "yes" : "no"}`;
+    }
+  },
+
+  renderTimeline(events) {
+    const root = document.getElementById("event-timeline");
+    root.innerHTML = "";
+    events.forEach(ev => {
+      const card = document.createElement("div");
+      card.className = `event event-${ev.event_type || "unknown"}`;
+      card.innerHTML = `
+        <span class="event-type">${this._escape(ev.event_type || "")}</span>
+        <span class="event-detail">${this._escape(ev.detector_name || ev.tool_name || "")}</span>
+      `;
+      root.appendChild(card);
+    });
+  },
+
+  // Helpers
+  _escape(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; },
+  _md(s) {
+    // Minimal markdown: paragraphs + **bold** + `code`. Avoid pulling a dep.
+    return this._escape(s)
+      .replace(/\n\n+/g, "</p><p>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/^/, "<p>")
+      .concat("</p>");
+  },
+};
