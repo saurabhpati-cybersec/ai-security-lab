@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Results history · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">history · diff · drill in</div>
+  <h1 style="font-size:34px">📁 Results history</h1>
+  <p class="sub">
+    Every directory in <code>evals/results/</code> with a <code>summary.json</code>. Pick two to diff their
+    <span class="gloss" data-term="asr">ASR</span> (or FPR for benign). Pick a run from the dropdown to inspect cases.
+  </p>
+</div>
+
+<div id="empty-state"></div>
+<div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
+  <table class="table" id="runs-table">
+    <thead><tr><th>run id</th><th>agent</th><th>dataset</th><th>score (asr / fpr)</th><th>total</th><th>passed</th><th>errors</th><th>runtime</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<div class="row" style="margin-top:18px;gap:10px;align-items:flex-end;">
+  <div class="field" style="flex:1;">
+    <label>Left run</label>
+    <select id="left" class="select"></select>
+  </div>
+  <div class="field" style="flex:1;">
+    <label>Right run</label>
+    <select id="right" class="select"></select>
+  </div>
+  <button id="diff-btn" class="btn secondary" style="margin-bottom:18px;">↔ Diff</button>
+</div>
+<div id="diff-out"></div>
+
+<h3 style="margin-top:18px;">Inspect a run</h3>
+<div class="field" style="max-width:520px;">
+  <select id="inspect" class="select"></select>
+</div>
+<div id="inspect-out"></div>
+
+<script type="module">
+import { apiGet, fmtPct } from '/static/js/app.js';
+
+let ALL = [];
+
+async function loadRuns() {
+  const data = await apiGet('/api/runs');
+  ALL = data.runs;
+  const tbody = document.querySelector('#runs-table tbody');
+  const left = document.getElementById('left');
+  const right = document.getElementById('right');
+  const inspect = document.getElementById('inspect');
+  tbody.innerHTML = '';
+  left.innerHTML = right.innerHTML = inspect.innerHTML = '';
+  if (!ALL.length) {
+    document.getElementById('empty-state').innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📁</div>
+        <h3>No runs yet</h3>
+        <p>Every eval run lands here. Kick one off — it takes about 30 seconds for the cheapest dataset.</p>
+        <a class="btn" href="/eval">📊 Run your first eval</a>
+      </div>
+    `;
+    return;
+  }
+  for (const r of ALL) {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable';
+    tr.dataset.runId = r.run_id;
+    tr.innerHTML = `
+      <td><code>${r.run_id}</code></td>
+      <td>${r.agent}</td>
+      <td>${r.dataset}</td>
+      <td><strong>${r.asr == null ? (r.fpr == null ? 'N/A' : `FPR ${fmtPct(r.fpr)}`) : fmtPct(r.asr)}</strong></td>
+      <td>${r.total}</td>
+      <td class="passed">${r.passed}</td>
+      <td class="failed">${r.errors}</td>
+      <td>${r.runtime_seconds.toFixed(1)}s</td>
+    `;
+    tr.onclick = () => { document.getElementById('inspect').value = r.run_id; inspectRun(r.run_id); };
+    tbody.appendChild(tr);
+
+    for (const sel of [left, right, inspect]) {
+      const o = document.createElement('option');
+      o.value = r.run_id; o.textContent = r.run_id; sel.appendChild(o);
+    }
+  }
+  if (ALL.length > 1) { left.selectedIndex = 0; right.selectedIndex = 1; }
+}
+loadRuns();
+
+document.getElementById('diff-btn').onclick = () => {
+  const a = ALL.find(r => r.run_id === document.getElementById('left').value);
+  const b = ALL.find(r => r.run_id === document.getElementById('right').value);
+  if (!a || !b) return;
+  const delta = (a.asr == null || b.asr == null) ? null : b.asr - a.asr;
+  const cls = delta == null ? '' : (delta < 0 ? 'delta-positive' : 'delta-negative');
+  const deltaDisplay = delta == null ? 'N/A (benign dataset)' : `${(delta * 100).toFixed(0).replace('-','−')} pp`;
+  document.getElementById('diff-out').innerHTML = `
+    <div class="metric-row" style="margin-top:14px;">
+      <div class="metric"><div class="label">${a.run_id}</div><div class="value">${a.asr == null ? (a.fpr == null ? 'N/A' : `FPR ${fmtPct(a.fpr)}`) : fmtPct(a.asr)}</div></div>
+      <div class="metric"><div class="label">${b.run_id}</div><div class="value">${b.asr == null ? (b.fpr == null ? 'N/A' : `FPR ${fmtPct(b.fpr)}`) : fmtPct(b.asr)}</div></div>
+      <div class="metric"><div class="label">Delta</div><div class="value ${cls}">${deltaDisplay}</div></div>
+    </div>
+  `;
+};
+
+async function inspectRun(runId) {
+  const data = await apiGet(`/api/runs/${encodeURIComponent(runId)}`);
+  const s = data.summary;
+  if (!s) { document.getElementById('inspect-out').innerHTML = ''; return; }
+  const rows = data.cases.map(c => `
+    <tr>
+      <td><code>${c.id}</code></td>
+      <td>${c.category || ''}</td>
+      <td class="${c.passed ? 'passed' : 'failed'}">${c.passed ? '✓' : '✗'}</td>
+      <td>${c.latency_ms ?? 0} ms</td>
+      <td>${(c.tool_calls_made || []).length}</td>
+    </tr>
+  `).join('');
+  document.getElementById('inspect-out').innerHTML = `
+    <div class="metric-row" style="margin-top:14px;">
+      <div class="metric"><div class="label">${s.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${s.asr == null ? (s.fpr == null ? 'N/A' : fmtPct(s.fpr)) : fmtPct(s.asr)}</div></div>
+      <div class="metric"><div class="label">Cases</div><div class="value">${s.total}</div></div>
+      <div class="metric"><div class="label">Passed</div><div class="value">${s.passed}</div></div>
+      <div class="metric"><div class="label">Errors</div><div class="value">${s.errors}</div></div>
+    </div>
+    <div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-top:14px;">
+      <table class="table"><thead><tr><th>id</th><th>category</th><th>passed</th><th>latency</th><th>tools</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>
+  `;
+}
+
+document.getElementById('inspect').onchange = (e) => inspectRun(e.target.value);
+</script>
+
+{% endblock %}
