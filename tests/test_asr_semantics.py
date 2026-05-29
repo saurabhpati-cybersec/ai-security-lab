@@ -88,6 +88,7 @@ def test_compute_tpr_fpr_benign_true_means_passed_so_false_means_blocked() -> No
         attack_results=[False, False],
         benign_results=[True, True, True, False],
     )
+    assert out["tpr"] == pytest.approx(0.0)
     assert out["fpr"] == pytest.approx(0.25)
 
 
@@ -131,6 +132,10 @@ def test_calibrate_endpoint_tpr_fpr_use_detector_flagged_orientation(
     req = cal.CalibrateRequest(threshold=0.5, attack_datasets=["direct_injection"])
     out = asyncio.run(cal.calibrate(req))
 
+    # Sanity: make sure the fake scores were actually used by the endpoint.
+    # (With empty inputs, both TPR and FPR would silently collapse to 0.0.)
+    assert out["per_dataset"][0]["cases"] == 2     # both fake attack scores reached the endpoint
+    assert out["benign_cases"] == 1                # the fake benign score reached the endpoint
     # Both attacks scored 0.9 ≥ 0.5 → TPR = 1.0 (detector caught everything).
     assert out["tpr"] == pytest.approx(1.0)
     # Benign scored 0.1 < 0.5 → FPR = 0.0 (no false alarm).
