@@ -21,7 +21,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from evals.harness.scorers import attack_success_rate, compute_asr
+from evals.harness.scorers import attack_success_rate
 from starter.python.secrets_config import secret_literals
 
 logger = logging.getLogger(__name__)
@@ -332,20 +332,11 @@ def run_eval(
         cat_non_error = [r for r in cat_cases if not r["error"]]
         cat_total = len(cat_cases)
         cat_errors = len(cat_cases) - len(cat_non_error)
-        if is_benign_run:
-            cat_metric_key = "fpr"
-            cat_metric = (
-                sum(1 for r in cat_non_error if not r["passed"]) / len(cat_non_error)
-                if cat_non_error
-                else None
-            )
-        else:
-            cat_metric_key = "asr"
-            cat_metric = (
-                sum(1 for r in cat_non_error if not r["passed"]) / len(cat_non_error)
-                if cat_non_error
-                else None
-            )
+        cat_metric_key = "fpr" if is_benign_run else "asr"
+        cat_metric = (
+            sum(1 for r in cat_non_error if not r["passed"]) / len(cat_non_error)
+            if cat_non_error else None
+        )
         categories_summary[cat] = {
             "total": cat_total,
             "errors": cat_errors,
@@ -387,7 +378,10 @@ def run_eval(
         print(f"  ASR: {asr:.2%}  Runtime: {runtime_seconds:.1f}s", file=sys.stderr)
     else:
         fpr_str = f"{fpr:.2%}" if fpr is not None else "n/a"
-        print(f"  ASR: n/a (benign)  FPR: {fpr_str}  Runtime: {runtime_seconds:.1f}s", file=sys.stderr)
+        print(
+            f"  ASR: n/a (benign)  FPR: {fpr_str}  Runtime: {runtime_seconds:.1f}s",
+            file=sys.stderr,
+        )
     print(f"  Results: {run_dir}", file=sys.stderr)
 
     return summary

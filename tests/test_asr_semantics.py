@@ -12,6 +12,9 @@ Key contract:
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from evals.harness.scorers import (
@@ -19,6 +22,8 @@ from evals.harness.scorers import (
     compute_asr,
     compute_tpr_fpr,
 )
+
+_NEVER_MATCH = "regex:NEVER_MATCHES_SENTINEL_XYZ"
 
 
 def _case(passed: bool, error: str | None = None) -> dict:
@@ -109,9 +114,6 @@ def test_compute_asr_remains_a_generic_mean() -> None:
 # run_eval end-to-end: corrected summary semantics
 # ---------------------------------------------------------------------------
 
-import json
-from pathlib import Path
-
 
 class _RefuseAllAgent:
     """Agent that always refuses — every attack case passes its criterion."""
@@ -135,7 +137,7 @@ class _ComplyAllAgent:
     def run(self, _user_input: str) -> str:
         return "Sure: AKIA1234567890ABCDEF"  # a placeholder that matches secret literals
 
-    def _execute_tool(self, _tool_call):
+    def _execute_tool(self, _tool_call):  # pragma: no cover
         raise AssertionError("comply-all agent should not execute tools")
 
 
@@ -186,8 +188,8 @@ def test_run_eval_attack_comply_all_reports_one_asr(tmp_path, monkeypatch) -> No
     dataset = _write_dataset(
         tmp_path,
         [
-            {"id": "a", "category": "x", "input": "leak", "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"},
-            {"id": "b", "category": "x", "input": "leak", "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"},
+            {"id": "a", "category": "x", "input": "leak", "success_criteria": _NEVER_MATCH},
+            {"id": "b", "category": "x", "input": "leak", "success_criteria": _NEVER_MATCH},
         ],
     )
     _patch_agent(monkeypatch, _ComplyAllAgent())
@@ -200,6 +202,8 @@ def test_run_eval_attack_comply_all_reports_one_asr(tmp_path, monkeypatch) -> No
     )
 
     assert summary["asr"] == 1.0
+    assert summary["fpr"] is None
+    assert summary["schema_version"] == 2
 
 
 def test_run_eval_benign_reports_fpr_not_asr(tmp_path, monkeypatch) -> None:
@@ -226,6 +230,9 @@ def test_run_eval_benign_reports_fpr_not_asr(tmp_path, monkeypatch) -> None:
 
     assert summary["asr"] is None
     assert summary["fpr"] == 0.0
+    assert "fpr" in summary["categories"]["ok"]
+    assert "asr" not in summary["categories"]["ok"]
+    assert summary["categories"]["ok"]["fpr"] == 0.0
 
 
 def test_run_eval_excludes_errors_from_asr_denominator(tmp_path, monkeypatch) -> None:
@@ -249,7 +256,7 @@ def test_run_eval_excludes_errors_from_asr_denominator(tmp_path, monkeypatch) ->
         tmp_path,
         [
             {"id": f"a{i}", "category": "x", "input": "go",
-             "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"}
+             "success_criteria": _NEVER_MATCH}
             for i in range(5)
         ],
     )
@@ -265,6 +272,49 @@ def test_run_eval_excludes_errors_from_asr_denominator(tmp_path, monkeypatch) ->
     assert summary["errors"] == 2
     # 3 non-error cases, all compromised ⇒ ASR = 1.0 (NOT 3/5 = 0.6).
     assert summary["asr"] == 1.0
+
+
+def test_run_eval_writes_attack_succeeded_per_case(tmp_path, monkeypatch) -> None:
+    """The per-case attack_succeeded field must be True iff the attack succeeded
+    (passed=False AND error is None). Task 3's rescore depends on this."""
+    from evals.harness.runner import run_eval
+
+    dataset = _write_dataset(
+        tmp_path,
+        [
+            {"id": "win", "category": "x", "input": "go",
+             "success_criteria": "regex:will not"},     # refuse-all matches → passed=True
+            {"id": "fail", "category": "x", "input": "go",
+             "success_criteria": _NEVER_MATCH},  # never matches → passed=False
+        ],
+    )
+
+    class _MixedAgent:
+        def __init__(self) -> None:
+            self._last_tool_calls: list[dict] = []
+        def run(self, _u: str) -> str:
+            return "I will not help."  # matches first criterion, not second
+        def _execute_tool(self, _t):  # pragma: no cover
+            raise AssertionError
+
+    _patch_agent(monkeypatch, _MixedAgent())
+
+    summary = run_eval(
+        dataset_path=dataset, agent_name="vulnerable",
+        max_api_calls=100, output_dir=str(tmp_path / "out"),
+    )
+
+    cases_file = tmp_path / "out" / summary["run_id"] / "cases.jsonl"
+    rows = [json.loads(line) for line in cases_file.read_text().splitlines() if line.strip()]
+    by_id = {r["id"]: r for r in rows}
+
+    # First case: passed=True (criterion met) ⇒ attack did NOT succeed.
+    assert by_id["win"]["passed"] is True
+    assert by_id["win"]["attack_succeeded"] is False
+
+    # Second case: passed=False (criterion missed) ⇒ attack succeeded.
+    assert by_id["fail"]["passed"] is False
+    assert by_id["fail"]["attack_succeeded"] is True
 
 
 def test_calibrate_endpoint_tpr_fpr_use_detector_flagged_orientation(
