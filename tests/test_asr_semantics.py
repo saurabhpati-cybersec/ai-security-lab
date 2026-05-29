@@ -385,3 +385,58 @@ def test_calibrate_endpoint_tpr_fpr_use_detector_flagged_orientation(
     assert out["tpr"] == pytest.approx(1.0)
     # Benign scored 0.1 < 0.5 → FPR = 0.0 (no false alarm).
     assert out["fpr"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# webapp/api/runs.py — accepts nullable asr and surfaces fpr
+# ---------------------------------------------------------------------------
+
+def test_runs_api_handles_nullable_asr_and_fpr(tmp_path, monkeypatch) -> None:
+    import webapp.api.runs as runs_mod
+
+    monkeypatch.setattr(runs_mod, "RESULTS_DIR", tmp_path)
+
+    benign_dir = tmp_path / "vulnerable_benign_x"
+    benign_dir.mkdir()
+    (benign_dir / "summary.json").write_text(json.dumps({
+        "schema_version": 2,
+        "run_id": "vulnerable_benign_x",
+        "agent": "vulnerable",
+        "dataset": "evals/datasets/benign.jsonl",
+        "total": 5, "passed": 4, "failed": 1, "errors": 0, "error_rate": 0.0,
+        "asr": None, "fpr": 0.2,
+        "categories": {},
+        "runtime_seconds": 1.0,
+    }))
+    summary = runs_mod._from_dir(benign_dir)
+    assert summary is not None
+    assert summary.asr is None
+    assert summary.fpr == 0.2
+    assert summary.schema_version == 2
+
+
+def test_runs_api_handles_legacy_summary_without_new_fields(tmp_path, monkeypatch) -> None:
+    """Legacy summary.json files (pre-migration) lack fpr/error_rate/schema_version.
+    The API should still load them without crashing, defaulting fpr=None,
+    error_rate=0.0, schema_version=1."""
+    import webapp.api.runs as runs_mod
+
+    monkeypatch.setattr(runs_mod, "RESULTS_DIR", tmp_path)
+
+    legacy_dir = tmp_path / "vulnerable_attack_x"
+    legacy_dir.mkdir()
+    (legacy_dir / "summary.json").write_text(json.dumps({
+        "run_id": "vulnerable_attack_x",
+        "agent": "vulnerable",
+        "dataset": "evals/datasets/direct_injection.jsonl",
+        "total": 10, "passed": 4, "failed": 6, "errors": 0,
+        "asr": 0.6,
+        "categories": {},
+        "runtime_seconds": 1.0,
+    }))
+    summary = runs_mod._from_dir(legacy_dir)
+    assert summary is not None
+    assert summary.asr == 0.6
+    assert summary.fpr is None
+    assert summary.error_rate == 0.0
+    assert summary.schema_version == 1
