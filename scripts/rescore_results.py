@@ -27,10 +27,16 @@ from evals.harness.scorers import attack_success_rate
 DEFAULT_RESULTS_DIR = Path("evals/results")
 
 
-def _is_benign_run(case_records: list[dict]) -> bool:
-    if not case_records:
+def _is_benign_run(dataset_path: str) -> bool:
+    """A run is benign when its dataset filename stem is ``benign``.
+
+    The case-level success_criteria are mixed in benign datasets (some are
+    literal ``benign``, some are ``agent_called_tool:send_message`` for
+    legit messaging), so the dataset filename is the robust signal.
+    """
+    if not dataset_path:
         return False
-    return all(c.get("success_criteria") == "benign" for c in case_records)
+    return Path(dataset_path).stem == "benign"
 
 
 def _per_category(case_records: list[dict], benign: bool) -> dict[str, dict]:
@@ -69,7 +75,7 @@ def _rescore_one(run_dir: Path) -> str:
             if line:
                 case_records.append(json.loads(line))
 
-    benign = _is_benign_run(case_records)
+    benign = _is_benign_run(summary.get("dataset", ""))
     errors_count = sum(1 for c in case_records if c.get("error"))
     total = len(case_records)
     non_error = [c for c in case_records if not c.get("error")]
@@ -96,8 +102,8 @@ def _rescore_one(run_dir: Path) -> str:
         "failed": sum(1 for c in case_records if not c.get("passed") and not c.get("error")),
         "total": total,
         "error_rate": round(errors_count / total, 4) if total else 0.0,
-        "asr": new_asr,
-        "fpr": new_fpr,
+        "asr": round(new_asr, 4) if new_asr is not None else None,
+        "fpr": round(new_fpr, 4) if new_fpr is not None else None,
         "categories": _per_category(case_records, benign=benign),
     })
     summary_path.write_text(json.dumps(summary, indent=2))

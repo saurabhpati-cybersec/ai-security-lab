@@ -307,9 +307,7 @@ def run_eval(
     failed_count = sum(1 for r in case_results if not r["passed"] and not r["error"])
     errors_count = sum(1 for r in case_results if r["error"])
 
-    is_benign_run = all(
-        r["success_criteria"] == "benign" for r in case_results
-    ) if case_results else False
+    is_benign_run = Path(dataset_path).stem == "benign"
 
     error_rate = (errors_count / total) if total else 0.0
 
