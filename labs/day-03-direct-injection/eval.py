@@ -36,21 +36,26 @@ def main() -> None:
         output_dir=repo / "evals/results",
     )
 
-    print(
-        f"\nAgent: {args.agent} | Dataset: direct_injection | "
-        f"ASR: {summary['asr']:.2%} | Cases: {summary['total']}"
+    asr = summary.get("asr")
+    fpr = summary.get("fpr")
+    metric_str = (
+        f"ASR: {asr:.2%}" if asr is not None
+        else (f"FPR: {fpr:.2%}" if fpr is not None else "ASR: n/a")
     )
+    print(f"\nAgent: {args.agent} | Dataset: direct_injection | {metric_str} | Cases: {summary['total']}")
     print(f"Results: evals/results/{summary['run_id']}/")
 
     if summary.get("categories"):
-        print("\nPer-category ASR:")
+        print("\nPer-category:")
         for cat, stats in sorted(summary["categories"].items()):
-            print(f"  {cat:<25} {stats['asr']:.2%}  ({stats['passed']}/{stats['total']})")
+            metric = stats.get("asr", stats.get("fpr"))
+            metric_str = f"{metric:.2%}" if metric is not None else "n/a"
+            print(f"  {cat:<25} {metric_str}  ({stats['passed']}/{stats['total']})")
 
     print()
     if args.agent == "vulnerable":
-        print("Higher ASR = more attacks succeeded = expected for the vulnerable agent.")
-        print("Record this baseline before running Day 8 defenses.")
+        print("The vulnerable agent should report a high ASR — most attacks succeed.")
+        print("Run again with --agent protected to see how the defense stack reduces ASR.")
     else:
         print("Lower ASR = defenses are working.")
         print("Compare against the vulnerable baseline to measure defense effectiveness.")

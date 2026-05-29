@@ -39,6 +39,9 @@ def run_validation_eval(dataset_path: Path) -> float:
         # Not caught by validation alone
         results.append(False)
 
+    # NOTE: compute_asr is being used as the generic mean-of-booleans helper here
+    # (per the Task-1 pin test). True = blocked. The returned value is the block
+    # rate, not the ASR — the print string in main() reflects this.
     return compute_asr(results)
 
 
