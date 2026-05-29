@@ -105,6 +105,168 @@ def test_compute_asr_remains_a_generic_mean() -> None:
 # webapp/api/calibrate.py — detector-score TPR / FPR orientation pin
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# run_eval end-to-end: corrected summary semantics
+# ---------------------------------------------------------------------------
+
+import json
+from pathlib import Path
+
+
+class _RefuseAllAgent:
+    """Agent that always refuses — every attack case passes its criterion."""
+
+    def __init__(self) -> None:
+        self._last_tool_calls: list[dict] = []
+
+    def run(self, _user_input: str) -> str:
+        return "I won't help with that."
+
+    def _execute_tool(self, _tool_call):  # pragma: no cover — never called
+        raise AssertionError("refuse-all agent should not execute tools")
+
+
+class _ComplyAllAgent:
+    """Agent that always echoes the secret — every attack criterion fails."""
+
+    def __init__(self) -> None:
+        self._last_tool_calls: list[dict] = []
+
+    def run(self, _user_input: str) -> str:
+        return "Sure: AKIA1234567890ABCDEF"  # a placeholder that matches secret literals
+
+    def _execute_tool(self, _tool_call):
+        raise AssertionError("comply-all agent should not execute tools")
+
+
+def _write_dataset(tmp: Path, rows: list[dict]) -> Path:
+    path = tmp / "tiny.jsonl"
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+    return path
+
+
+def _patch_agent(monkeypatch, agent_instance) -> None:
+    from evals.harness import runner
+
+    def _loader(_name: str):
+        return agent_instance
+
+    monkeypatch.setattr(runner, "_load_agent", _loader)
+
+
+def test_run_eval_attack_refuse_all_reports_zero_asr(tmp_path, monkeypatch) -> None:
+    from evals.harness.runner import run_eval
+
+    dataset = _write_dataset(
+        tmp_path,
+        [
+            {"id": "a", "category": "x", "input": "hi", "success_criteria": "regex:won't"},
+            {"id": "b", "category": "x", "input": "hi", "success_criteria": "regex:won't"},
+        ],
+    )
+    _patch_agent(monkeypatch, _RefuseAllAgent())
+
+    summary = run_eval(
+        dataset_path=dataset,
+        agent_name="vulnerable",
+        max_api_calls=100,
+        output_dir=tmp_path / "out",
+    )
+
+    assert summary["asr"] == 0.0
+    assert summary["fpr"] is None  # not a benign dataset
+    assert summary["schema_version"] == 2
+
+
+def test_run_eval_attack_comply_all_reports_one_asr(tmp_path, monkeypatch) -> None:
+    from evals.harness.runner import run_eval
+
+    dataset = _write_dataset(
+        tmp_path,
+        [
+            {"id": "a", "category": "x", "input": "leak", "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"},
+            {"id": "b", "category": "x", "input": "leak", "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"},
+        ],
+    )
+    _patch_agent(monkeypatch, _ComplyAllAgent())
+
+    summary = run_eval(
+        dataset_path=dataset,
+        agent_name="vulnerable",
+        max_api_calls=100,
+        output_dir=tmp_path / "out",
+    )
+
+    assert summary["asr"] == 1.0
+
+
+def test_run_eval_benign_reports_fpr_not_asr(tmp_path, monkeypatch) -> None:
+    from evals.harness.runner import run_eval
+
+    # Benign dataset — uses the "benign" success_criteria which always passes.
+    # ASR is undefined; FPR is the fraction of cases that did NOT pass.
+    dataset = _write_dataset(
+        tmp_path,
+        [
+            {"id": "a", "category": "ok", "input": "hello", "success_criteria": "benign"},
+            {"id": "b", "category": "ok", "input": "hello", "success_criteria": "benign"},
+        ],
+    )
+    # Use the refuse-all agent which won't block benign (criterion="benign" always True).
+    _patch_agent(monkeypatch, _RefuseAllAgent())
+
+    summary = run_eval(
+        dataset_path=dataset,
+        agent_name="vulnerable",
+        max_api_calls=100,
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert summary["asr"] is None
+    assert summary["fpr"] == 0.0
+
+
+def test_run_eval_excludes_errors_from_asr_denominator(tmp_path, monkeypatch) -> None:
+    from evals.harness.runner import run_eval
+
+    class _FlakyAgent:
+        def __init__(self) -> None:
+            self._last_tool_calls: list[dict] = []
+            self._n = 0
+
+        def run(self, _u: str) -> str:
+            self._n += 1
+            if self._n <= 2:
+                raise RuntimeError("api down")
+            return "compromised: AKIA1234567890ABCDEF"
+
+        def _execute_tool(self, _t):  # pragma: no cover
+            raise AssertionError
+
+    dataset = _write_dataset(
+        tmp_path,
+        [
+            {"id": f"a{i}", "category": "x", "input": "go",
+             "success_criteria": "regex:NEVER_MATCHES_SENTINEL_XYZ"}
+            for i in range(5)
+        ],
+    )
+    _patch_agent(monkeypatch, _FlakyAgent())
+
+    summary = run_eval(
+        dataset_path=dataset,
+        agent_name="vulnerable",
+        max_api_calls=100,
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert summary["errors"] == 2
+    # 3 non-error cases, all compromised ⇒ ASR = 1.0 (NOT 3/5 = 0.6).
+    assert summary["asr"] == 1.0
+
+
 def test_calibrate_endpoint_tpr_fpr_use_detector_flagged_orientation(
     tmp_path, monkeypatch
 ) -> None:
