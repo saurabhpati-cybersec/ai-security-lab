@@ -8,7 +8,7 @@
   <p class="sub">
     Pick a dataset and an agent. Cases stream in via Server-Sent Events as the runner writes them.
     Click any row to inspect the prompt and the agent's response. Final number is the
-    <span class="gloss" data-term="asr">ASR</span>; per-category breakdown lands on completion.
+    <span class="gloss" data-term="asr">ASR</span> (or FPR for benign datasets); per-category breakdown lands on completion.
     Want to read prompts first without spending tokens? <a href="/datasets">Browse datasets →</a>
   </p>
 </div>
@@ -188,7 +188,7 @@ function renderSummary(s, opts = {}) {
     </div>
     ${cats ? `<h3>Per-category</h3>
       <div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
-      <table class="table"><thead><tr><th>category</th><th>total</th><th>passed</th><th>asr</th></tr></thead><tbody>${cats}</tbody></table>
+      <table class="table"><thead><tr><th>category</th><th>total</th><th>passed</th><th>${s.asr == null ? 'fpr' : 'asr'}</th></tr></thead><tbody>${cats}</tbody></table>
       </div>` : ''}
     ${rerunBtn}
   `;
@@ -225,8 +225,8 @@ function renderCompare(vuln, prot) {
     <div style="margin-top:22px;padding:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
       <h3 style="margin-top:0;">Vulnerable vs protected</h3>
       <div class="metric-row">
-        <div class="metric"><div class="label">Vulnerable ASR</div><div class="value">${vuln.asr == null ? 'N/A' : fmtPct(vuln.asr)}</div></div>
-        <div class="metric"><div class="label">Protected ASR</div><div class="value">${prot.asr == null ? 'N/A' : fmtPct(prot.asr)}</div></div>
+        <div class="metric"><div class="label">Vulnerable ${vuln.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${vuln.asr == null ? 'N/A' : fmtPct(vuln.asr)}</div></div>
+        <div class="metric"><div class="label">Protected ${prot.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${prot.asr == null ? 'N/A' : fmtPct(prot.asr)}</div></div>
         <div class="metric">
           <div class="label">Delta</div>
           <div class="value ${deltaClass}">${deltaSign} ${delta == null ? '—' : (Math.abs(delta) * 100).toFixed(1) + ' pts'}</div>
