@@ -77,7 +77,7 @@ The migrated benign runs now correctly report `asr=None` with a numeric
 
 ## Known minor follow-ups
 
-All review findings addressed — see commit <SHA>.
+All review findings addressed — see commit f4dc032.
 
 - Extracted `per_category_metrics()` to `scorers.py`; `runner.py` and `rescore_results.py` now both call the shared helper, eliminating duplication-drift risk. Pin test added in `test_asr_semantics.py`.
 - `results.html` compare panel: replaced the misleading "lower is better" framing with an explicit "B is X pp lower/higher than A" label (user controls left/right, so directional framing was wrong). Colour coding changed to neutral (`delta-neutral`) for both signs.
