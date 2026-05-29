@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -144,7 +144,9 @@ def _sse(event: str, data: dict | str) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-async def _stream_anthropic(client, messages: list[ChatMessage], page: str | None) -> AsyncIterator[str]:
+async def _stream_anthropic(
+    client, messages: list[ChatMessage], page: str | None
+) -> AsyncIterator[str]:
     sys_prompt = SYSTEM_PROMPT
     if page:
         sys_prompt += f"\n\n# Current page\nThe user is on the **{page}** page right now."
@@ -164,7 +166,9 @@ async def _stream_anthropic(client, messages: list[ChatMessage], page: str | Non
         yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"[:300]})
 
 
-async def _stream_openai(client, messages: list[ChatMessage], page: str | None) -> AsyncIterator[str]:
+async def _stream_openai(
+    client, messages: list[ChatMessage], page: str | None
+) -> AsyncIterator[str]:
     sys_prompt = SYSTEM_PROMPT
     if page:
         sys_prompt += f"\n\n# Current page\nThe user is on the **{page}** page right now."

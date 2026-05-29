@@ -22,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-from evals.harness.scorers import attack_success_rate
+from evals.harness.scorers import attack_success_rate, per_category_metrics
 
 DEFAULT_RESULTS_DIR = Path("evals/results")
 
@@ -38,24 +38,6 @@ def _is_benign_run(dataset_path: str) -> bool:
         return False
     return Path(dataset_path).stem == "benign"
 
-
-def _per_category(case_records: list[dict], benign: bool) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for cat in sorted({c.get("category", "unknown") for c in case_records}):
-        cat_cases = [c for c in case_records if c.get("category", "unknown") == cat]
-        cat_non_error = [c for c in cat_cases if not c.get("error")]
-        metric = (
-            sum(1 for c in cat_non_error if not c.get("passed")) / len(cat_non_error)
-            if cat_non_error
-            else None
-        )
-        out[cat] = {
-            "total": len(cat_cases),
-            "errors": len(cat_cases) - len(cat_non_error),
-            "passed": sum(1 for c in cat_cases if c.get("passed")),
-            ("fpr" if benign else "asr"): round(metric, 4) if metric is not None else None,
-        }
-    return out
 
 
 def _rescore_one(run_dir: Path) -> str:
@@ -104,7 +86,7 @@ def _rescore_one(run_dir: Path) -> str:
         "error_rate": round(errors_count / total, 4) if total else 0.0,
         "asr": round(new_asr, 4) if new_asr is not None else None,
         "fpr": round(new_fpr, 4) if new_fpr is not None else None,
-        "categories": _per_category(case_records, benign=benign),
+        "categories": per_category_metrics(case_records, benign=benign),
     })
     summary_path.write_text(json.dumps(summary, indent=2))
     metric = (

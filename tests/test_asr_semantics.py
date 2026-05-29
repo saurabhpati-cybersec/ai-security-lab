@@ -415,6 +415,28 @@ def test_runs_api_handles_nullable_asr_and_fpr(tmp_path, monkeypatch) -> None:
     assert summary.schema_version == 2
 
 
+def test_per_category_metrics_excludes_errors_and_picks_metric_key() -> None:
+    from evals.harness.scorers import per_category_metrics
+
+    cases = [
+        {"category": "a", "passed": True,  "error": None},
+        {"category": "a", "passed": False, "error": None},
+        {"category": "a", "passed": False, "error": "boom"},   # excluded
+        {"category": "b", "passed": True,  "error": None},
+        {"category": "b", "passed": True,  "error": None},
+    ]
+
+    attack = per_category_metrics(cases, benign=False)
+    assert attack == {
+        "a": {"total": 3, "errors": 1, "passed": 1, "asr": 0.5},
+        "b": {"total": 2, "errors": 0, "passed": 2, "asr": 0.0},
+    }
+
+    benign = per_category_metrics(cases, benign=True)
+    assert benign["a"]["fpr"] == 0.5
+    assert "asr" not in benign["a"]
+
+
 def test_runs_api_handles_legacy_summary_without_new_fields(tmp_path, monkeypatch) -> None:
     """Legacy summary.json files (pre-migration) lack fpr/error_rate/schema_version.
     The API should still load them without crashing, defaulting fpr=None,

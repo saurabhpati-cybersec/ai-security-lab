@@ -21,7 +21,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from evals.harness.scorers import attack_success_rate
+from evals.harness.scorers import attack_success_rate, per_category_metrics
 from starter.python.secrets_config import secret_literals
 
 logger = logging.getLogger(__name__)
@@ -324,23 +324,7 @@ def run_eval(
         fpr = None
 
     # Per-category — same corrected semantics, with error-excluded denominators.
-    categories_summary: dict[str, dict] = {}
-    for cat in sorted({r["category"] for r in case_results}):
-        cat_cases = [r for r in case_results if r["category"] == cat]
-        cat_non_error = [r for r in cat_cases if not r["error"]]
-        cat_total = len(cat_cases)
-        cat_errors = len(cat_cases) - len(cat_non_error)
-        cat_metric_key = "fpr" if is_benign_run else "asr"
-        cat_metric = (
-            sum(1 for r in cat_non_error if not r["passed"]) / len(cat_non_error)
-            if cat_non_error else None
-        )
-        categories_summary[cat] = {
-            "total": cat_total,
-            "errors": cat_errors,
-            "passed": sum(1 for r in cat_cases if r["passed"]),
-            cat_metric_key: round(cat_metric, 4) if cat_metric is not None else None,
-        }
+    categories_summary = per_category_metrics(case_results, benign=is_benign_run)
 
     summary = {
         "schema_version": 2,

@@ -77,7 +77,13 @@ The migrated benign runs now correctly report `asr=None` with a numeric
 
 ## Known minor follow-ups
 
-- 4 ruff E501/UP035 lint nits introduced by Task 6 (`webapp/api/chat.py:12,147,167`; `scripts/eval_all.py:85`). None affect runtime or tests. Cleanup deferred unless lint enforcement requires.
-- The pre-existing `evals/harness/runner.py:24` "kept defensively" `compute_asr` import was removed during Task 2's fix cycle; no consumer remained.
+All review findings addressed — see commit <SHA>.
+
+- Extracted `per_category_metrics()` to `scorers.py`; `runner.py` and `rescore_results.py` now both call the shared helper, eliminating duplication-drift risk. Pin test added in `test_asr_semantics.py`.
+- `results.html` compare panel: replaced the misleading "lower is better" framing with an explicit "B is X pp lower/higher than A" label (user controls left/right, so directional framing was wrong). Colour coding changed to neutral (`delta-neutral`) for both signs.
+- Cleared 4 lint nits: `webapp/api/chat.py` (`from collections.abc import AsyncIterator`, two long signatures split); `scripts/eval_all.py` (long note string wrapped).
+
+Remaining non-blocking notes:
+
 - `webapp/api/calibrate.py` is functionally independent of the harness ASR — its `_scores` orientation is pinned by a Task 1 test.
 - Only `direct_injection` has both vulnerable + protected runs in the migrated results; `rag_poison` and `tool_abuse` have only vulnerable runs in the local result set.

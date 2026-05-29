@@ -94,8 +94,10 @@ document.getElementById('diff-btn').onclick = () => {
   const b = ALL.find(r => r.run_id === document.getElementById('right').value);
   if (!a || !b) return;
   const delta = (a.asr == null || b.asr == null) ? null : b.asr - a.asr;
-  const cls = delta == null ? '' : (delta < 0 ? 'delta-positive' : 'delta-negative');
-  const deltaDisplay = delta == null ? 'N/A (benign dataset)' : `${(delta * 100).toFixed(0).replace('-','−')} pp (lower is better — defense ↓ASR ↓FPR)`;
+  const cls = delta == null ? '' : 'delta-neutral';
+  const deltaDisplay = delta == null
+    ? 'N/A (benign dataset)'
+    : `${b.run_id.split('_').slice(0, 2).join('_')} is ${fmtPct(Math.abs(delta))} ${delta < 0 ? 'lower' : 'higher'} than ${a.run_id.split('_').slice(0, 2).join('_')}`;
   document.getElementById('diff-out').innerHTML = `
     <div class="metric-row" style="margin-top:14px;">
       <div class="metric"><div class="label">${a.run_id}</div><div class="value">${a.asr == null ? (a.fpr == null ? 'N/A' : `FPR ${fmtPct(a.fpr)}`) : fmtPct(a.asr)}</div></div>

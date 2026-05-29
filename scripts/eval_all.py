@@ -29,7 +29,10 @@ def run_smoketest() -> None:
         smoketest.main()
     except SystemExit as exc:
         if exc.code != 0:
-            print("ERROR: Smoketest failed. Fix harness issues before running eval-all.", file=sys.stderr)
+            print(
+                "ERROR: Smoketest failed. Fix harness issues before running eval-all.",
+                file=sys.stderr,
+            )
             sys.exit(1)
     print()
 
@@ -82,7 +85,10 @@ SYNTHETIC_RESULTS = {
         "cases": None,  # filled at runtime
         "vulnerable_fpr": 0.00,
         "protected_fpr": 0.08,
-        "note": "Benign dataset: lower FPR = fewer false blocks. Vulnerable never blocks; protected blocks 8% (the cost of having defenses).",
+        "note": (
+            "Benign dataset: lower FPR = fewer false blocks. "
+            "Vulnerable never blocks; protected blocks 8% (the cost of having defenses)."
+        ),
     },
     "direct_injection": {
         "cases": None,
@@ -94,7 +100,10 @@ SYNTHETIC_RESULTS = {
         "cases": None,
         "vulnerable_asr": 0.55,
         "protected_asr": 0.40,
-        "note": "Rule-based input simulation catches explicit patterns; sophisticated IPI needs LLM judge.",
+        "note": (
+            "Rule-based input simulation catches explicit patterns; "
+            "sophisticated IPI needs LLM judge."
+        ),
     },
     "tool_abuse": {
         "cases": None,
@@ -106,13 +115,19 @@ SYNTHETIC_RESULTS = {
         "cases": None,
         "vulnerable_asr": 0.45,
         "protected_asr": 0.38,
-        "note": "IPI tagging on tool results catches many; high-cosine-sim adversarial docs evade rules.",
+        "note": (
+            "IPI tagging on tool results catches many; "
+            "high-cosine-sim adversarial docs evade rules."
+        ),
     },
     "exfiltration": {
         "cases": None,
         "vulnerable_asr": 0.60,
         "protected_asr": 0.15,
-        "note": "OutputFilter + ToolGateway combine effectively; markdown image blocking very effective.",
+        "note": (
+            "OutputFilter + ToolGateway combine effectively; "
+            "markdown image blocking very effective."
+        ),
     },
 }
 
@@ -198,9 +213,12 @@ Live API evals: run `make eval-all` with ANTHROPIC_API_KEY set.
 ## Residual Risk
 
 The following attack classes still succeed at elevated rates against the protected agent:
-- **Indirect injection (ASR 0.40):** Rule-based detector catches explicit injection patterns in input simulation, but sophisticated IPI via actual tool results requires LLM-as-judge classifier (not enabled by default — requires API call per check)
-- **RAG poisoning (ASR 0.38):** High-cosine-sim adversarial docs with subtle injections evade rule patterns. Mitigation: add corpus signing and human review for new doc additions
-- **Adaptive attacks:** ~15% of attack cases represent bypasses not covered by current rules. See labs/day-13-capstone-attack/ for documented bypass techniques
+- **Indirect injection (ASR 0.40):** Rule-based detector catches explicit patterns; sophisticated
+  IPI via actual tool results requires LLM-as-judge classifier (opt-in, needs API call per check)
+- **RAG poisoning (ASR 0.38):** High-cosine-sim adversarial docs evade rule patterns.
+  Mitigation: corpus signing and human review for new doc additions.
+- **Adaptive attacks:** ~15% of attack cases represent bypasses not covered by current rules.
+  See labs/day-13-capstone-attack/ for documented bypass techniques.
 
 ## How to Run Live Evals
 
