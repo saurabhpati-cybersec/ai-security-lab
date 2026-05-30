@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}Eval runner · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">live evals · per-case progress</div>
+  <h1 style="font-size:34px">📊 Eval runner</h1>
+  <p class="sub">
+    Pick a dataset and an agent. Cases stream in via Server-Sent Events as the runner writes them.
+    Click any row to inspect the prompt and the agent's response. Final number is the
+    <span class="gloss" data-term="asr">ASR</span> (or FPR for benign datasets); per-category breakdown lands on completion.
+    Want to read prompts first without spending tokens? <a href="/datasets">Browse datasets →</a>
+  </p>
+</div>
+
+<div class="row">
+  <div class="field" style="flex:1;">
+    <label>Dataset</label>
+    <select id="dataset" class="select"></select>
+  </div>
+  <div class="field" style="flex:1;">
+    <label>Agent</label>
+    <select id="agent" class="select">
+      <option value="vulnerable">vulnerable</option>
+      <option value="protected">protected</option>
+    </select>
+  </div>
+  <div class="field" style="width:160px;">
+    <label>Max API calls</label>
+    <input id="max-calls" class="input" type="number" min="1" max="500" value="20" />
+  </div>
+</div>
+
+<div class="row">
+  <button id="start-btn" class="btn">▶ Run eval</button>
+  <span id="progress-text" class="muted"></span>
+</div>
+
+<div id="progress-bar-wrap" class="hide" style="margin-top:12px;background:var(--card);border-radius:6px;height:6px;overflow:hidden;">
+  <div id="progress-bar" style="background:linear-gradient(90deg,#22d3ee,#a78bfa);height:100%;width:0;transition:width 0.3s ease;"></div>
+</div>
+
+<div id="env-warning"></div>
+
+<div id="defenses-panel" class="hide" style="margin-top:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="font-size:18px;">🛡</span>
+    <strong>Defenses applied by the protected agent</strong>
+  </div>
+  <p class="muted" style="font-size:13px;margin:0 0 10px;">
+    Four layers wrap the same base agent. Click any file to see how it's built.
+  </p>
+  <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.7;">
+    <li><strong>Input validation</strong> — pattern-based injection detector blocks high-confidence attacks before the LLM sees them.
+      <code>detectors/rules.py</code></li>
+    <li><strong>Tool gateway</strong> — per-tool call budgets + URL/recipient allowlists. Default <code>send_message</code> recipient list is empty (deny-all).
+      <code>agents/protected/gateway.py</code></li>
+    <li><strong>Tool-result tagging</strong> — same RulesDetector re-scans tool output and prefixes suspicious results with <code>[UNTRUSTED_INJECTION_DETECTED]</code> so the LLM treats them as data.
+      <code>detectors/rules.py</code></li>
+    <li><strong>Output filtering</strong> — strips secrets / known exfiltration vectors from the final response before it leaves the agent.
+      <code>detectors/output_filter.py</code></li>
+  </ul>
+  <p class="muted" style="font-size:12px;margin:10px 0 0;">
+    Want the full walkthrough? <a href="/labs">Day 8 (detection engineering) → Day 11 (monitoring)</a>.
+  </p>
+</div>
+
+<div id="summary"></div>
+<div id="compare"></div>
+
+<h3 style="margin-top:22px;">Cases <span class="muted" style="font-weight:400;font-size:13px;">— click a row to expand</span></h3>
+<div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
+  <table class="table" id="cases-table">
+    <thead>
+      <tr><th></th><th>id</th><th>category</th><th>passed</th><th>latency</th><th>tools</th><th>error</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script type="module">
+import { apiGet, apiPost, fmtPct, escapeHtml } from '/static/js/app.js';
+
+let lastSummary = null;      // summary from the most recent run on this page
+let lastVulnSummary = null;  // most recent vulnerable summary, for compare view
+
+function updateDefensesPanel() {
+  const panel = document.getElementById('defenses-panel');
+  const isProtected = document.getElementById('agent').value === 'protected';
+  panel.classList.toggle('hide', !isProtected);
+}
+
+async function init() {
+  const datasets = await apiGet('/api/eval/datasets');
+  const sel = document.getElementById('dataset');
+  for (const d of datasets.datasets) {
+    const opt = document.createElement('option');
+    opt.value = d; opt.textContent = d;
+    sel.appendChild(opt);
+  }
+  const env = await apiGet('/api/env');
+  if (!env.has_anthropic && !env.has_openai) {
+    document.getElementById('env-warning').innerHTML =
+      `<div class="banner warn">No API key set. Add one on <a href="/settings">Settings</a> before running.</div>`;
+  }
+
+  // Deep-linking: ?dataset=...&agent=...&auto=1
+  const params = new URLSearchParams(window.location.search);
+  const ds = params.get('dataset');
+  const ag = params.get('agent');
+  const auto = params.get('auto');
+  if (ds && [...sel.options].some(o => o.value === ds)) sel.value = ds;
+  if (ag === 'vulnerable' || ag === 'protected') document.getElementById('agent').value = ag;
+  updateDefensesPanel();
+  document.getElementById('agent').addEventListener('change', updateDefensesPanel);
+  if (auto === '1') setTimeout(() => document.getElementById('start-btn').click(), 200);
+}
+init();
+
+function renderCaseRow(tbody, row) {
+  const tr = document.createElement('tr');
+  tr.className = 'clickable';
+  tr.innerHTML = `
+    <td style="width:22px;color:var(--muted);">▸</td>
+    <td><code>${escapeHtml(row.id || '')}</code></td>
+    <td>${escapeHtml(row.category || '')}</td>
+    <td class="${row.passed ? 'passed' : 'failed'}">${row.passed ? '✓ passed' : '✗ failed'}</td>
+    <td>${row.latency_ms ?? 0} ms</td>
+    <td>${(row.tool_calls_made || []).length}</td>
+    <td>${row.error ? `<span class="muted">${escapeHtml(row.error.slice(0, 80))}</span>` : ''}</td>
+  `;
+
+  const detail = document.createElement('tr');
+  detail.className = 'hide';
+  const toolsHtml = (row.tool_calls_made || []).length
+    ? `<pre style="margin:4px 0 0;">${escapeHtml(JSON.stringify(row.tool_calls_made, null, 2))}</pre>`
+    : '<span class="muted">none</span>';
+  detail.innerHTML = `
+    <td></td>
+    <td colspan="6" style="background:var(--card-2);padding:14px 16px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px;">input</div>
+          <pre style="margin:0 0 10px;">${escapeHtml(row.input || '')}</pre>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px;">success criteria</div>
+          <code style="font-size:12px;">${escapeHtml(row.success_criteria || 'benign')}</code>
+        </div>
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px;">agent response</div>
+          <pre style="margin:0 0 10px;">${escapeHtml(row.agent_response || '')}</pre>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:4px;">tool calls</div>
+          ${toolsHtml}
+        </div>
+      </div>
+    </td>
+  `;
+
+  tr.addEventListener('click', () => {
+    const open = !detail.classList.contains('hide');
+    detail.classList.toggle('hide', open);
+    tr.querySelector('td').textContent = open ? '▸' : '▾';
+  });
+
+  tbody.appendChild(tr);
+  tbody.appendChild(detail);
+}
+
+function renderSummary(s, opts = {}) {
+  const cats = s.categories ? Object.entries(s.categories).map(([cat, c]) =>
+    `<tr><td>${escapeHtml(cat)}</td><td>${c.total}</td><td>${c.passed}</td><td>${c.asr == null && c.fpr == null ? '—' : fmtPct(c.asr != null ? c.asr : c.fpr)}</td></tr>`).join('') : '';
+
+  const rerunBtn = opts.showRerun ? `
+    <button id="rerun-protected-btn" class="btn secondary" style="margin-top:14px;">
+      🛡 Re-run on protected agent
+    </button>
+    <span class="muted" style="margin-left:10px;font-size:13px;">
+      Same dataset, defenses on. See how much the ASR drops.
+    </span>
+  ` : '';
+
+  document.getElementById('summary').innerHTML = `
+    <div class="metric-row" style="margin-top:18px;">
+      <div class="metric"><div class="label">${s.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${s.asr == null ? (s.fpr == null ? 'N/A' : fmtPct(s.fpr)) : fmtPct(s.asr)}</div></div>
+      <div class="metric"><div class="label">Passed</div><div class="value">${s.passed}</div></div>
+      <div class="metric"><div class="label">Failed</div><div class="value" style="color:#ef4444">${s.failed}</div></div>
+      <div class="metric"><div class="label">Errors</div><div class="value" style="color:#f59e0b">${s.errors}</div></div>
+      <div class="metric"><div class="label">Runtime</div><div class="value" style="font-size:22px">${(s.runtime_seconds ?? 0).toFixed(1)}s</div></div>
+    </div>
+    ${cats ? `<h3>Per-category</h3>
+      <div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
+      <table class="table"><thead><tr><th>category</th><th>total</th><th>passed</th><th>${s.asr == null ? 'fpr' : 'asr'}</th></tr></thead><tbody>${cats}</tbody></table>
+      </div>` : ''}
+    ${rerunBtn}
+  `;
+
+  if (opts.showRerun) {
+    document.getElementById('rerun-protected-btn').onclick = () => {
+      document.getElementById('agent').value = 'protected';
+      updateDefensesPanel();
+      document.getElementById('start-btn').click();
+    };
+  }
+}
+
+function renderCompare(vuln, prot) {
+  const delta = (vuln.asr == null || prot.asr == null) ? null : vuln.asr - prot.asr;
+  const deltaText = delta == null ? 'N/A (benign dataset)' : (delta >= 0 ? `−${fmtPct(delta)} (defense helped)` : `+${fmtPct(-delta)} (defense hurt)`);
+  const deltaClass = delta == null ? 'delta-neutral' : (delta > 0 ? 'delta-positive' : (delta < 0 ? 'delta-negative' : 'delta-neutral'));
+  const deltaSign = delta == null ? '·' : (delta > 0 ? '↓' : (delta < 0 ? '↑' : '·'));
+
+  // Per-category side-by-side
+  const cats = new Set([...Object.keys(vuln.categories || {}), ...Object.keys(prot.categories || {})]);
+  const rows = [...cats].sort().map(cat => {
+    const v = vuln.categories?.[cat];
+    const p = prot.categories?.[cat];
+    return `<tr>
+      <td>${escapeHtml(cat)}</td>
+      <td>${v ? (v.asr == null ? (v.fpr == null ? 'N/A' : fmtPct(v.fpr)) : fmtPct(v.asr)) : '—'}</td>
+      <td>${p ? (p.asr == null ? (p.fpr == null ? 'N/A' : fmtPct(p.fpr)) : fmtPct(p.asr)) : '—'}</td>
+      <td>${(v && p && v.asr != null && p.asr != null) ? (((v.asr - p.asr) * 100).toFixed(1) + ' pts') : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('compare').innerHTML = `
+    <div style="margin-top:22px;padding:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
+      <h3 style="margin-top:0;">Vulnerable vs protected</h3>
+      <div class="metric-row">
+        <div class="metric"><div class="label">Vulnerable ${vuln.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${vuln.asr == null ? 'N/A' : fmtPct(vuln.asr)}</div></div>
+        <div class="metric"><div class="label">Protected ${prot.asr == null ? 'FPR' : 'ASR'}</div><div class="value">${prot.asr == null ? 'N/A' : fmtPct(prot.asr)}</div></div>
+        <div class="metric">
+          <div class="label">Delta</div>
+          <div class="value ${deltaClass}">${deltaSign} ${delta == null ? '—' : (Math.abs(delta) * 100).toFixed(1) + ' pts'}</div>
+          <div class="${deltaClass}" style="font-size:13px;">${deltaText}</div>
+        </div>
+      </div>
+      ${rows ? `<h4>Per-category</h4>
+        <div class="table-scroll" style="background:var(--card-2);border:1px solid var(--border);border-radius:var(--radius);">
+        <table class="table"><thead><tr><th>category</th><th>vulnerable</th><th>protected</th><th>delta</th></tr></thead><tbody>${rows}</tbody></table>
+        </div>` : ''}
+    </div>
+  `;
+}
+
+document.getElementById('start-btn').onclick = async () => {
+  const tbody = document.querySelector('#cases-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('summary').innerHTML = '';
+  document.getElementById('progress-text').textContent = 'Starting…';
+  document.getElementById('progress-bar-wrap').classList.remove('hide');
+  document.getElementById('progress-bar').style.width = '0%';
+
+  const dataset = document.getElementById('dataset').value;
+  const agent = document.getElementById('agent').value;
+  const max_api_calls = parseInt(document.getElementById('max-calls').value, 10);
+  const r = await apiPost('/api/eval/start', { dataset, agent, max_api_calls });
+
+  let total = r.total_cases;
+  let seen = 0;
+  const es = new EventSource(`/api/eval/${r.job_id}/stream`);
+
+  es.addEventListener('case', (e) => {
+    const row = JSON.parse(e.data);
+    seen++;
+    renderCaseRow(tbody, row);
+    document.getElementById('progress-text').textContent = `${seen} / ${total} cases`;
+    document.getElementById('progress-bar').style.width = `${(seen / total) * 100}%`;
+  });
+
+  es.addEventListener('done', (e) => {
+    es.close();
+    const s = JSON.parse(e.data);
+    s.dataset = dataset;
+    s.agent = agent;
+    lastSummary = s;
+    document.getElementById('progress-text').textContent = `Done: ${s.run_id || ''}`;
+
+    if (agent === 'vulnerable') {
+      lastVulnSummary = s;
+      document.getElementById('compare').innerHTML = '';
+      renderSummary(s, { showRerun: true });
+    } else {
+      renderSummary(s, { showRerun: false });
+      if (lastVulnSummary && lastVulnSummary.dataset === dataset) {
+        renderCompare(lastVulnSummary, s);
+      } else {
+        document.getElementById('compare').innerHTML = '';
+      }
+    }
+  });
+  es.addEventListener('error', (e) => {
+    es.close();
+    document.getElementById('progress-text').innerHTML = `<span style="color:var(--red)">${e.data || 'connection error'}</span>`;
+  });
+};
+</script>
+
+{% endblock %}

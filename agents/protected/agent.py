@@ -12,7 +12,15 @@ from agents.protected.gateway import GatewayConfig, ToolGateway
 from agents.reference.agent import AgentConfig, BaseAgent, ToolCall, ToolResult, TOOL_DEFINITIONS
 from detectors.output_filter import OutputFilter
 from detectors.rules import RulesDetector
+from range.schema import DefensePreset
 from starter.python.log_schema import LogWriter, make_event
+
+try:
+    from detectors.classifier import ClassifierDetector
+
+    _CLASSIFIER_AVAILABLE = True
+except ImportError:
+    _CLASSIFIER_AVAILABLE = False
 
 try:
     from starter.python.anthropic_client import AnthropicAdapter
@@ -77,9 +85,14 @@ class ProtectedAgent(BaseAgent):
         log_writer: LogWriter | None = None,
         gateway_config: GatewayConfig | None = None,
         allowed_recipients: list[str] | None = None,
+        enable_classifier: bool = False,
+        preset: DefensePreset | None = None,
     ) -> None:
         super().__init__(config or AgentConfig(agent_id="protected-agent"), log_writer)
         self._system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+        # --- Defense preset (None ⇒ legacy hardcoded behavior) ---
+        self._preset: DefensePreset | None = preset
 
         # --- LLM adapter (Anthropic preferred, OpenAI fallback) ---
         # Adapter initialisation is deferred to first use so that the object can
@@ -89,6 +102,17 @@ class ProtectedAgent(BaseAgent):
 
         # --- Defense layer 1: rule-based injection detector ---
         self._detector = RulesDetector()
+
+        # --- Defense layer 1b (opt-in): LLM-as-judge classifier ---
+        # Only instantiated when the caller asks for it AND the SDK + API key
+        # are available. Silently falls back to rules-only when not usable.
+        self._classifier = None
+        if enable_classifier and _CLASSIFIER_AVAILABLE:
+            try:
+                self._classifier = ClassifierDetector()
+            except RuntimeError:
+                # No API key configured — keep classifier off and continue.
+                self._classifier = None
 
         # --- Defense layer 2: tool gateway ---
         cfg = gateway_config or _make_default_gateway_config()
@@ -111,6 +135,40 @@ class ProtectedAgent(BaseAgent):
         self._output_filter = OutputFilter()
 
     # ------------------------------------------------------------------
+    # Preset gating helpers
+    # ------------------------------------------------------------------
+
+    def _should_run_input_check(self) -> bool:
+        if self._preset is None:
+            return True  # legacy default
+        return self._preset.rules_input
+
+    def _should_check_tool_result(self) -> bool:
+        if self._preset is None:
+            return True
+        return self._preset.rules_tool_result
+
+    def _should_use_gateway(self) -> bool:
+        if self._preset is None:
+            return True
+        return self._preset.gateway_budgets or self._preset.gateway_egress_blocks
+
+    def _should_filter_output(self) -> bool:
+        if self._preset is None:
+            return True
+        return self._preset.output_filter
+
+    def _input_threshold(self) -> float:
+        if self._preset is None:
+            return _INPUT_BLOCK_CONFIDENCE
+        return self._preset.rules_input_threshold
+
+    def _tool_result_threshold(self) -> float:
+        if self._preset is None:
+            return _TOOL_RESULT_TAG_CONFIDENCE
+        return self._preset.rules_tool_result_threshold
+
+    # ------------------------------------------------------------------
     # BaseAgent implementation
     # ------------------------------------------------------------------
 
@@ -121,20 +179,38 @@ class ProtectedAgent(BaseAgent):
         the conversation history is valid for both adapters.
         """
         # ── Defense 1: input validation ──────────────────────────────────────
-        input_check = self._detector.check(user_input)
-        if input_check.is_injection and input_check.confidence >= _INPUT_BLOCK_CONFIDENCE:
+        block_confidence = 0.0
+        block_detector = ""
+        block_matches: list[str] = []
+        if self._should_run_input_check():
+            input_check = self._detector.check(user_input)
+            block_confidence = input_check.confidence
+            block_detector = "RulesDetector"
+            block_matches = list(input_check.matched_rules)
+
+        # Defense 1b: ask the LLM judge too (opt-in). If it agrees with higher
+        # confidence than the rules, we use its score for the block decision.
+        # Only runs when the input-check layer is enabled by the preset.
+        if self._classifier is not None and self._should_run_input_check():
+            judge = self._classifier.check(user_input)
+            if judge.error is None and judge.confidence > block_confidence:
+                block_confidence = judge.confidence
+                block_detector = "ClassifierDetector"
+                block_matches.append(f"classifier:{judge.reasoning[:80]}")
+
+        if self._should_run_input_check() and block_confidence >= self._input_threshold():
             self._emit(
                 make_event(
                     agent_id=self.config.agent_id,
                     session_id=self._session_id,
                     step=0,
                     event_type="policy_violation",
-                    detector_name="RulesDetector",
-                    detector_score=input_check.confidence,
+                    detector_name=block_detector,
+                    detector_score=block_confidence,
                     severity="high",
                     metadata={
                         "reason": "input_injection_blocked",
-                        "matched_rules": input_check.matched_rules,
+                        "matched_rules": block_matches,
                     },
                 )
             )
@@ -171,20 +247,26 @@ class ProtectedAgent(BaseAgent):
 
             if not tool_calls:
                 # ── Defense 4: output filtering ───────────────────────────────
-                filter_result = self._output_filter.filter(text)
-                if filter_result.was_modified:
-                    self._emit(
-                        make_event(
-                            agent_id=self.config.agent_id,
-                            session_id=self._session_id,
-                            step=step,
-                            event_type="detector_hit",
-                            detector_name="OutputFilter",
-                            detector_score=1.0,
-                            severity="medium",
-                            metadata={"violations": filter_result.violations},
+                output_was_filtered = False
+                if self._should_filter_output():
+                    filter_result = self._output_filter.filter(text)
+                    if filter_result.was_modified:
+                        output_was_filtered = True
+                        self._emit(
+                            make_event(
+                                agent_id=self.config.agent_id,
+                                session_id=self._session_id,
+                                step=step,
+                                event_type="detector_hit",
+                                detector_name="OutputFilter",
+                                detector_score=1.0,
+                                severity="medium",
+                                metadata={"violations": filter_result.violations},
+                            )
                         )
-                    )
+                    final_text = filter_result.filtered_text
+                else:
+                    final_text = text
 
                 self._emit(
                     make_event(
@@ -193,10 +275,10 @@ class ProtectedAgent(BaseAgent):
                         step=step,
                         event_type="final_response",
                         model=self.config.model,
-                        metadata={"output_filtered": filter_result.was_modified},
+                        metadata={"output_filtered": output_was_filtered},
                     )
                 )
-                return filter_result.filtered_text
+                return final_text
 
             # Build the assistant message in Anthropic-native block format.
             assistant_content: list[dict] = []
@@ -234,28 +316,35 @@ class ProtectedAgent(BaseAgent):
                     )
                 )
 
-                result_text = self._execute_tool_with_gateway(tool_call, step)
+                if self._should_use_gateway():
+                    result_text = self._execute_tool_with_gateway(tool_call, step)
+                else:
+                    # L0 path: direct dispatch, no policy checks.
+                    from agents.reference.tools import dispatch_tool
+                    raw_result = dispatch_tool(tool_call)
+                    result_text = raw_result.content if not raw_result.error else f"Error: {raw_result.error}"
 
                 # ── Defense 3: tool-result injection check ────────────────────
-                ipi_check = self._detector.check_tool_result(tc["name"], result_text)
-                if ipi_check.is_injection and ipi_check.confidence >= _TOOL_RESULT_TAG_CONFIDENCE:
-                    self._emit(
-                        make_event(
-                            agent_id=self.config.agent_id,
-                            session_id=self._session_id,
-                            step=step,
-                            event_type="detector_hit",
-                            detector_name="RulesDetector",
-                            detector_score=ipi_check.confidence,
-                            severity="high",
-                            tool_name=tc["name"],
-                            metadata={
-                                "reason": "ipi_detected_in_tool_result",
-                                "matched_rules": ipi_check.matched_rules,
-                            },
+                if self._should_check_tool_result():
+                    ipi_check = self._detector.check_tool_result(tc["name"], result_text)
+                    if ipi_check.is_injection and ipi_check.confidence >= self._tool_result_threshold():
+                        self._emit(
+                            make_event(
+                                agent_id=self.config.agent_id,
+                                session_id=self._session_id,
+                                step=step,
+                                event_type="detector_hit",
+                                detector_name="RulesDetector",
+                                detector_score=ipi_check.confidence,
+                                severity="high",
+                                tool_name=tc["name"],
+                                metadata={
+                                    "reason": "ipi_detected_in_tool_result",
+                                    "matched_rules": ipi_check.matched_rules,
+                                },
+                            )
                         )
-                    )
-                    result_text = _UNTRUSTED_PREFIX + result_text
+                        result_text = _UNTRUSTED_PREFIX + result_text
 
                 self._emit(
                     make_event(
@@ -392,9 +481,14 @@ def main() -> None:
         nargs="?",
         default="What tools do you have available?",
     )
+    parser.add_argument(
+        "--enable-classifier",
+        action="store_true",
+        help="Also run the LLM-as-judge classifier on user input (extra API call per request).",
+    )
     args = parser.parse_args()
 
-    agent = ProtectedAgent()
+    agent = ProtectedAgent(enable_classifier=args.enable_classifier)
     response = agent.run(args.query)
     print(response)
 

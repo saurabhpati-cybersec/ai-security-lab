@@ -63,7 +63,7 @@ class BaseAgent(abc.ABC):
 
     def _emit(self, event: LogEvent) -> None:
         """Write log event to writer if configured."""
-        if self.log_writer:
+        if self.log_writer is not None:
             self.log_writer.write(event)
 
     @staticmethod

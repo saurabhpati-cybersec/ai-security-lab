@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
+    "InMemoryLogWriter",
     "LogEvent",
     "LogWriter",
     "make_event",
@@ -163,3 +164,30 @@ class LogWriter:
         else:
             sys.stdout.write(line + "\n")
             sys.stdout.flush()
+
+
+class InMemoryLogWriter:
+    """Buffers ``LogEvent`` objects in a list so callers (e.g. the GUI) can
+    inspect a full session after the agent finishes.
+
+    Mirrors the ``LogWriter`` interface (``write(event)``) so it slots into the
+    same hook on ``BaseAgent``.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[LogEvent] = []
+
+    def write(self, event: LogEvent) -> None:
+        self.events.append(event)
+
+    def clear(self) -> None:
+        self.events = []
+
+    def __bool__(self) -> bool:
+        # Defined explicitly so that __len__ doesn't accidentally make an
+        # empty writer falsy — every writer instance "exists" regardless
+        # of how many events it has captured.
+        return True
+
+    def __len__(self) -> int:
+        return len(self.events)

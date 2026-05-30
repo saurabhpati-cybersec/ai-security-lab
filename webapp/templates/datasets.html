@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Datasets · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">browse · before you run</div>
+  <h1 style="font-size:34px">📜 Datasets</h1>
+  <p class="sub">
+    Every eval prompt, exactly as it lands in the agent. Pick a dataset on the left to inspect
+    its cases — <code>input</code>, expected behavior, and the <code>success_criteria</code> the
+    runner scores against. No API calls, no money spent.
+  </p>
+</div>
+
+<div class="lab-grid">
+  <div class="lab-list" id="ds-list"></div>
+  <div class="lab-detail" id="ds-detail">
+    <div class="banner info">Pick a dataset on the left.</div>
+  </div>
+</div>
+
+<script type="module">
+import { apiGet, escapeHtml } from '/static/js/app.js';
+
+const listEl = document.getElementById('ds-list');
+const detailEl = document.getElementById('ds-detail');
+
+function renderCase(c) {
+  const sc = c.success_criteria || 'benign';
+  return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--card);">
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        <code style="color:var(--cyan);">${escapeHtml(c.id || '')}</code>
+        <span class="muted" style="font-size:12px;">${escapeHtml(c.category || '')}</span>
+      </div>
+      <div style="font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:0.6px;margin-top:6px;">input</div>
+      <pre style="margin:4px 0 8px;">${escapeHtml(c.input || '')}</pre>
+      ${c.expected_behavior ? `
+        <div style="font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:0.6px;">expected behavior</div>
+        <div style="font-size:13px;margin:2px 0 8px;">${escapeHtml(c.expected_behavior)}</div>
+      ` : ''}
+      <div style="font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:0.6px;">success criteria</div>
+      <code style="font-size:12px;">${escapeHtml(sc)}</code>
+    </div>
+  `;
+}
+
+async function loadDataset(name) {
+  detailEl.innerHTML = '<div class="muted">Loading…</div>';
+  for (const el of listEl.querySelectorAll('.lab-item')) {
+    el.classList.toggle('active', el.dataset.name === name);
+  }
+  try {
+    const d = await apiGet(`/api/eval/datasets/${encodeURIComponent(name)}`);
+    const cases = d.cases || [];
+    detailEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <h2 style="margin:0;">${escapeHtml(d.name)}</h2>
+        <div style="display:flex;gap:8px;">
+          <span class="muted">${d.count} cases</span>
+          <a class="btn" href="/eval?dataset=${encodeURIComponent(d.name)}&agent=vulnerable">▶ Run on vulnerable</a>
+          <a class="btn secondary" href="/eval?dataset=${encodeURIComponent(d.name)}&agent=protected">🛡 Run on protected</a>
+        </div>
+      </div>
+      ${cases.map(renderCase).join('')}
+    `;
+  } catch (e) {
+    detailEl.innerHTML = `<div class="banner danger">Failed to load: ${escapeHtml(e.message || String(e))}</div>`;
+  }
+}
+
+async function init() {
+  const r = await apiGet('/api/eval/datasets');
+  const datasets = r.datasets || [];
+  if (!datasets.length) {
+    listEl.innerHTML = '<div class="muted">No datasets found.</div>';
+    return;
+  }
+  listEl.innerHTML = datasets.map(name => `
+    <div class="lab-item" data-name="${escapeHtml(name)}">
+      <span><span class="day">📜</span> ${escapeHtml(name)}</span>
+    </div>
+  `).join('');
+  for (const el of listEl.querySelectorAll('.lab-item')) {
+    el.addEventListener('click', () => loadDataset(el.dataset.name));
+  }
+
+  // Deep-link via ?name=...
+  const params = new URLSearchParams(window.location.search);
+  const want = params.get('name');
+  const first = (want && datasets.includes(want)) ? want : datasets[0];
+  loadDataset(first);
+}
+init();
+</script>
+
+{% endblock %}

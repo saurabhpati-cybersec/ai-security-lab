@@ -4,6 +4,8 @@ Target latency: <5ms per check on modern hardware.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 import time
 from dataclasses import dataclass
@@ -16,6 +18,10 @@ class DetectionResult:
     matched_rules: list[str]
     latency_ms: float
     text_length: int
+
+
+# Long-ish base64 blob — picked up before we try to decode and rescan.
+_BASE64_BLOB = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
 
 
 class RulesDetector:
@@ -96,20 +102,32 @@ class RulesDetector:
         ]
 
     def check(self, text: str) -> DetectionResult:
-        """Check text for injection patterns. Returns DetectionResult."""
+        """Check text for injection patterns. Returns DetectionResult.
+
+        When a long base64-looking blob is found, the blob is decoded and the
+        decoded text is rescanned against every rule *except* the base64
+        indicator itself. If a high-weight rule fires inside the decoded
+        payload, both the indicator and the decoded match are reported and
+        the confidence reflects the decoded match — this is what catches
+        attacks like di-010 where the real instruction is hidden in base64.
+        """
         t0 = time.perf_counter()
-        matched: list[str] = []
-        max_confidence = 0.0
+        matched, max_confidence = self._scan(text)
 
-        for name, pattern, weight in self._compiled:
-            if pattern.search(text):
-                matched.append(name)
-                max_confidence = max(max_confidence, weight)
+        # Try base64 decode-and-rescan when the indicator fired.
+        if "base64_instruction" in matched:
+            for decoded in self._iter_decoded(text):
+                sub_matched, sub_max = self._scan(decoded, skip={"base64_instruction"})
+                for rule in sub_matched:
+                    tagged = f"decoded:{rule}"
+                    if tagged not in matched:
+                        matched.append(tagged)
+                if sub_max > max_confidence:
+                    max_confidence = sub_max
 
-        # Combine: use max single-rule confidence, boosted by co-occurrence
+        # Combine: max single-rule confidence, boosted by co-occurrence.
         confidence = max_confidence
         if len(matched) > 1:
-            # Multiple rules firing increases confidence
             confidence = min(1.0, max_confidence + 0.05 * (len(matched) - 1))
 
         latency_ms = (time.perf_counter() - t0) * 1000
@@ -120,6 +138,43 @@ class RulesDetector:
             latency_ms=latency_ms,
             text_length=len(text),
         )
+
+    def _scan(
+        self, text: str, skip: set[str] | None = None
+    ) -> tuple[list[str], float]:
+        """Apply every rule (minus *skip*) to *text*; return (matches, max_weight)."""
+        skip = skip or set()
+        matched: list[str] = []
+        max_confidence = 0.0
+        for name, pattern, weight in self._compiled:
+            if name in skip:
+                continue
+            if pattern.search(text):
+                matched.append(name)
+                if weight > max_confidence:
+                    max_confidence = weight
+        return matched, max_confidence
+
+    @staticmethod
+    def _iter_decoded(text: str) -> list[str]:
+        """Return UTF-8 decodings of plausible base64 blobs found in *text*."""
+        out: list[str] = []
+        for match in _BASE64_BLOB.finditer(text):
+            blob = match.group(0)
+            # Skip unrealistically short fragments that the rule weight already
+            # discounts for false positives.
+            if len(blob) < 24:
+                continue
+            try:
+                raw = base64.b64decode(blob, validate=True)
+            except (binascii.Error, ValueError):
+                continue
+            try:
+                decoded = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            out.append(decoded)
+        return out
 
     def check_tool_result(self, tool_name: str, content: str) -> DetectionResult:
         """Check tool result content for IPI patterns (indirect injection via tool output)."""

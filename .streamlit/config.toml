@@ -1,0 +1,14 @@
+[theme]
+base = "dark"
+primaryColor = "#22d3ee"            # cyan-400 — info / safe / brand
+backgroundColor = "#0b1220"         # near-black slate
+secondaryBackgroundColor = "#111c2e" # card background
+textColor = "#e2e8f0"               # slate-200
+font = "monospace"
+
+[server]
+headless = false
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

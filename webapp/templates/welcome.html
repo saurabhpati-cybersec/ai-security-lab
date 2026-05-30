@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}ai-security-lab · welcome{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">14-day curriculum · attack → defend → measure</div>
+  <h1>ai-security-lab</h1>
+  <p class="sub">
+    Build a tool-using LLM agent. Break it with documented attacks. Defend it with a layered control stack.
+    Every defense ships with a number — calibrated TPR, FPR, and ASR delta — not a description.
+  </p>
+</div>
+
+{% if not has_anthropic and not has_openai %}
+  <div class="banner warn">
+    No API key found. Some pages (Attack playground, Eval runner) will not run live agents until you
+    <a href="/settings">add a key on the Settings page</a>. Detector calibration, results browsing, and lab
+    reading work offline.
+  </div>
+{% endif %}
+
+{% if highlights %}
+  {% if highlights.estimated %}
+  <div class="banner warn">
+    Numbers below are <strong>estimates</strong> from static analysis. Use the
+    <a href="/eval">Eval runner</a> to overwrite with measured ASR.
+  </div>
+  {% endif %}
+  <div class="metric-row">
+    <div class="metric">
+      <div class="label"><span class="gloss" data-term="asr">Vulnerable ASR</span> (avg attack)</div>
+      <div class="value">{{ (highlights.vuln_avg_asr * 100) | round(0) | int }}%</div>
+      <div class="delta-neutral">no defenses</div>
+    </div>
+    <div class="metric">
+      <div class="label"><span class="gloss" data-term="asr">Protected ASR</span> (avg attack)</div>
+      <div class="value">{{ (highlights.prot_avg_asr * 100) | round(0) | int }}%</div>
+      <div class="delta-positive">full defense stack</div>
+    </div>
+    <div class="metric">
+      <div class="label">ASR delta</div>
+      <div class="value">{{ '%+d' % (highlights.delta * 100) }} pp</div>
+      <div class="{{ 'delta-positive' if highlights.delta < 0 else 'delta-negative' }}">
+        {{ ((highlights.relative_reduction | abs) * 100) | round(0) | int }}% reduction
+      </div>
+    </div>
+    <div class="metric">
+      <div class="label">Datasets · cases</div>
+      <div class="value">{{ highlights.rows | length }} · {{ highlights.total_cases }}</div>
+      <div class="delta-neutral"><span class="gloss" data-term="benign">benign</span> + attack classes</div>
+    </div>
+  </div>
+{% endif %}
+
+<h2>Explore</h2>
+<div class="cta-row">
+  <a href="/docs/tutorial" class="cta" style="border-color: rgba(34,211,238,0.4);">
+    <div class="badge">start here</div>
+    <h3>🎓 Step-by-step tutorial</h3>
+    <p>20-minute hands-on tour. Every step is a click — no terminal commands. End with a measured ASR delta.</p>
+  </a>
+  <a href="/playground" class="cta">
+    <div class="badge">Interactive</div>
+    <h3>🥷 Attack playground</h3>
+    <p>Send a payload to vulnerable + protected agents. Watch the trust-boundary diagram light up as detectors fire.</p>
+  </a>
+  <a href="/eval" class="cta">
+    <div class="badge">Live evals</div>
+    <h3>📊 Eval runner</h3>
+    <p>Pick a dataset, kick off run_eval, see ASR build up case by case via Server-Sent Events.</p>
+  </a>
+  <a href="/results" class="cta">
+    <div class="badge">History</div>
+    <h3>📁 Results history</h3>
+    <p>Browse every past run. Diff any two runs to see how a defense change moved ASR.</p>
+  </a>
+  <a href="/calibration" class="cta">
+    <div class="badge">Offline · zero cost</div>
+    <h3>🎚️ Detector calibration</h3>
+    <p>Drag the RulesDetector threshold. TPR/FPR curves recompute live on all six datasets — no API calls.</p>
+  </a>
+  <a href="/labs" class="cta">
+    <div class="badge">Guided</div>
+    <h3>📚 Day-by-day walkthrough</h3>
+    <p>Day 0 → Day 14. Read the brief, try the attack, apply the defense, observe the ASR change.</p>
+  </a>
+  <a href="/tests" class="cta">
+    <div class="badge">Smoketest</div>
+    <h3>🧪 Tests</h3>
+    <p>Run the pytest suite from the GUI. Confirms harness, scorers, and detectors are wired correctly.</p>
+  </a>
+  <a href="/settings" class="cta">
+    <div class="badge">Setup</div>
+    <h3>⚙️ Settings</h3>
+    <p>Add or update your Anthropic / OpenAI API key. Validates against the live API with one click.</p>
+  </a>
+  <a href="/api/swagger" class="cta" target="_blank">
+    <div class="badge">API</div>
+    <h3>🔌 OpenAPI docs</h3>
+    <p>Every page above is backed by a documented REST + SSE API. Open the auto-generated Swagger UI.</p>
+  </a>
+</div>
+
+{% endblock %}

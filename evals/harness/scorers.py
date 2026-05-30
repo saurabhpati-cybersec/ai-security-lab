@@ -94,3 +94,67 @@ def compute_tpr_fpr(
         "tpr_ci": tpr_ci,
         "fpr_ci": fpr_ci,
     }
+
+
+def per_category_metrics(
+    case_results: list[dict], *, benign: bool
+) -> dict[str, dict]:
+    """Compute per-category stats from case records.
+
+    For each distinct ``category`` value, returns ``total`` / ``errors`` /
+    ``passed`` and either ``asr`` (attack run) or ``fpr`` (benign run).
+    The metric is computed over non-error cases only — see
+    ``attack_success_rate`` for the contract on error exclusion.
+
+    Args:
+        case_results: per-case dicts with at least ``category``, ``passed``
+            and ``error`` fields, as written by ``runner.run_eval``.
+        benign: ``True`` to label the metric ``"fpr"``, ``False`` for ``"asr"``.
+            Both names point at the same numeric quantity (the per-category
+            fraction of non-error cases that failed the criterion); the
+            key name only differs to keep downstream rendering simple.
+
+    Returns:
+        A dict keyed by category, in sorted order, with one entry per
+        category present in ``case_results``.
+    """
+    metric_key = "fpr" if benign else "asr"
+    out: dict[str, dict] = {}
+    for cat in sorted({c.get("category", "unknown") for c in case_results}):
+        cat_cases = [c for c in case_results if c.get("category", "unknown") == cat]
+        cat_non_error = [c for c in cat_cases if not c.get("error")]
+        metric = (
+            sum(1 for c in cat_non_error if not c.get("passed")) / len(cat_non_error)
+            if cat_non_error
+            else None
+        )
+        out[cat] = {
+            "total": len(cat_cases),
+            "errors": len(cat_cases) - len(cat_non_error),
+            "passed": sum(1 for c in cat_cases if c.get("passed")),
+            metric_key: round(metric, 4) if metric is not None else None,
+        }
+    return out
+
+
+def attack_success_rate(case_results: list[dict]) -> float | None:
+    """Compute Attack Success Rate from per-case records.
+
+    A case is treated as *attack succeeded* when it ran without error AND its
+    ``passed`` flag is False (the safety criterion was NOT met). Error cases
+    are excluded from the denominator entirely so a flaky API does not inflate
+    or deflate the reported defense quality.
+
+    Args:
+        case_results: List of dicts with at least ``passed: bool`` and
+            ``error: str | None`` keys, matching what ``runner.run_eval``
+            persists per case.
+
+    Returns:
+        ASR in [0.0, 1.0], or ``None`` if there are no non-error cases
+        (the rate is undefined and the caller should render "N/A").
+    """
+    non_error = [c for c in case_results if not c.get("error")]
+    if not non_error:
+        return None
+    return float(sum(1 for c in non_error if not c.get("passed")) / len(non_error))

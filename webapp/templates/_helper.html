@@ -1,0 +1,41 @@
+{# On-screen helper: selection-pill + docked right-hand panel.
+   Wired in base.html, behaviour in /static/js/helper.js. #}
+
+<button id="helper-toggle" class="helper-toggle" type="button"
+        aria-label="Open helper" aria-expanded="false" title="Helper (?)">
+  <span class="helper-toggle-icon">❓</span><span class="helper-toggle-label">Helper</span>
+</button>
+
+<aside id="helper-panel" class="helper-panel" hidden aria-hidden="true">
+  <header class="helper-panel-head">
+    <div class="helper-panel-title">❓ Helper</div>
+    <div class="helper-panel-actions">
+      <button id="helper-clear" type="button" class="helper-btn-icon"
+              title="Clear conversation" aria-label="Clear">🗑️</button>
+      <button id="helper-close" type="button" class="helper-btn-icon"
+              title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+  </header>
+
+  <div id="helper-thread" class="helper-thread" role="log" aria-live="polite">
+    <div class="helper-empty">
+      <p>Select any text on the page and ask about it, or try one of these:</p>
+      <ul class="helper-suggestions">
+        <li><button type="button" class="helper-suggestion">What is ASR?</button></li>
+        <li><button type="button" class="helper-suggestion">How does the rules detector decide to block?</button></li>
+        <li><button type="button" class="helper-suggestion">What is the lethal trifecta?</button></li>
+      </ul>
+    </div>
+  </div>
+
+  <form id="helper-form" class="helper-form" autocomplete="off">
+    <textarea id="helper-input" class="helper-input" rows="2"
+              placeholder="Ask about anything on this page…" aria-label="Question"></textarea>
+    <button type="submit" class="helper-send" aria-label="Send">Send</button>
+  </form>
+</aside>
+
+<button id="helper-pill" class="helper-pill" type="button" hidden
+        aria-label="Ask about selection">Ask about this ↗</button>
+
+<script src="/static/js/helper.js" defer></script>

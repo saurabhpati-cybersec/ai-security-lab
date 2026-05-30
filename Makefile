@@ -1,10 +1,10 @@
-.PHONY: setup test eval eval-all clean
+.PHONY: setup test eval eval-all gui clean
 
 setup:
 	pip install -r requirements.txt
 
 test:
-	python3 evals/harness/smoketest.py
+	pytest tests/
 
 eval:
 	@echo "Usage: make eval DATASET=direct_injection AGENT=vulnerable"
@@ -12,6 +12,9 @@ eval:
 
 eval-all:
 	python3 scripts/eval_all.py
+
+gui:
+	./launch.sh
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Settings · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">setup</div>
+  <h1 style="font-size:32px">⚙️ Settings</h1>
+  <p class="sub">
+    Store your Anthropic and/or OpenAI API key. Keys are written to <code>.env</code> in the repo root
+    and never leave this machine. The Anthropic key is preferred; OpenAI is the automatic fallback.
+  </p>
+</div>
+
+<div class="banner info">
+  <strong>What needs a key?</strong> Attack playground, Eval runner, and the "Try the attack" buttons on
+  Day walkthrough. <strong>What doesn't?</strong> Detector calibration, Results history, Tests, and reading the lab briefs.
+</div>
+
+<div id="banner-slot"></div>
+
+<form id="env-form" class="compare">
+  <div class="col">
+    <h3>🤖 Anthropic</h3>
+    <div class="field">
+      <label>ANTHROPIC_API_KEY</label>
+      <input type="password" id="anthropic-input" class="input" placeholder="sk-ant-..." autocomplete="off" />
+      <small id="anthropic-status" class="muted"></small>
+    </div>
+    <small class="muted">Used by the protected agent's classifier and the primary LLM adapter.</small>
+  </div>
+  <div class="col">
+    <h3>🤖 OpenAI</h3>
+    <div class="field">
+      <label>OPENAI_API_KEY</label>
+      <input type="password" id="openai-input" class="input" placeholder="sk-..." autocomplete="off" />
+      <small id="openai-status" class="muted"></small>
+    </div>
+    <small class="muted">Automatic fallback if no Anthropic key is configured.</small>
+  </div>
+</form>
+
+<div class="row" style="margin-top:18px;gap:10px;">
+  <button id="save-btn" class="btn">💾 Save</button>
+  <button id="validate-btn" class="btn secondary" type="button">✓ Validate with a 1-token ping</button>
+  <span class="spacer"></span>
+  <small class="muted">Keys never leave your machine.</small>
+</div>
+
+<script type="module">
+import { apiGet, apiPost, toast } from '/static/js/app.js';
+
+const banner = document.getElementById('banner-slot');
+const aIn = document.getElementById('anthropic-input');
+const oIn = document.getElementById('openai-input');
+const aStatus = document.getElementById('anthropic-status');
+const oStatus = document.getElementById('openai-status');
+
+async function refresh() {
+  const env = await apiGet('/api/env');
+  aStatus.textContent = env.has_anthropic ? '✓ currently set' : 'not set';
+  oStatus.textContent = env.has_openai ? '✓ currently set' : 'not set';
+}
+refresh();
+
+document.getElementById('save-btn').onclick = async (e) => {
+  e.preventDefault();
+  const body = {};
+  if (aIn.value.trim()) body.anthropic_api_key = aIn.value.trim();
+  if (oIn.value.trim()) body.openai_api_key = oIn.value.trim();
+  if (!Object.keys(body).length) {
+    toast('Enter at least one key first.', 'warn');
+    return;
+  }
+  try {
+    await apiPost('/api/env', body);
+    aIn.value = ''; oIn.value = '';
+    toast('✓ Saved. Keys active in this process — no restart needed.', 'success');
+    refresh();
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, 'danger');
+  }
+};
+
+document.getElementById('validate-btn').onclick = async () => {
+  banner.innerHTML = '<div class="banner info">Pinging API… <span class="spinner"></span></div>';
+  try {
+    const r = await apiPost('/api/env/validate', {});
+    if (r.ok) {
+      banner.innerHTML = `<div class="banner success">✓ ${r.provider} key works. ${r.message ?? ''}</div>`;
+    } else {
+      banner.innerHTML = `<div class="banner danger">✗ ${r.provider}: ${r.message ?? 'unknown error'}</div>`;
+    }
+  } catch (err) {
+    banner.innerHTML = `<div class="banner danger">Validation request failed: ${err.message}</div>`;
+  }
+};
+</script>
+
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Calibration · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">offline · zero API cost</div>
+  <h1 style="font-size:34px">🎚️ Detector calibration</h1>
+  <p class="sub">
+    Drag the threshold. <span class="gloss" data-term="tpr">TPR</span> and <span class="gloss" data-term="fpr">FPR</span>
+    recompute live across the <span class="gloss" data-term="benign">benign</span> + 5 attack datasets — pure regex, sub-millisecond.
+  </p>
+</div>
+
+<div class="banner info">
+  <strong>Calibration is the soul of detection engineering.</strong> Move the threshold up: fewer false alarms
+  (lower FPR), but you miss more real attacks (lower TPR). Move it down: catch more attacks but break benign
+  flows. There's no free lunch — pick the operating point your product can tolerate.
+  <br><small>The curve looks like a staircase because the regex detector produces binary scores (0 or a fixed weight per rule). Scores cluster near 0.0 and 0.75–1.0; thresholds in the gap between those clusters don't change any classification.</small>
+</div>
+
+<div class="slider-row">
+  <label>Input block threshold <span class="gloss" data-term="rules_detector"></span></label>
+  <input type="range" id="thresh" min="0" max="1" step="0.01" value="0.6" />
+  <span class="val" id="thresh-val">0.60</span>
+</div>
+
+<div class="metric-row">
+  <div class="metric"><div class="label"><span class="gloss" data-term="tpr">TPR</span> (attacks blocked)</div><div class="value" id="m-tpr">—</div></div>
+  <div class="metric"><div class="label"><span class="gloss" data-term="fpr">FPR</span> (benign blocked)</div><div class="value" id="m-fpr">—</div></div>
+  <div class="metric"><div class="label">Benign cases</div><div class="value" id="m-bcases">—</div></div>
+  <div class="metric"><div class="label">Benign blocked</div><div class="value" id="m-bblocked">—</div></div>
+</div>
+
+<h3>TPR vs FPR curve</h3>
+<div class="chart-wrap">
+  <svg viewBox="0 0 600 280" preserveAspectRatio="none" id="chart"></svg>
+</div>
+
+<h3>Per-dataset detection at current threshold</h3>
+<div class="table-scroll" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);">
+  <table class="table" id="per-dataset">
+    <thead><tr><th>dataset</th><th>cases</th><th>detected</th><th>tpr</th><th>mean score</th><th>max</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script type="module">
+import { apiPost, fmtPct } from '/static/js/app.js';
+
+const thresh = document.getElementById('thresh');
+const threshVal = document.getElementById('thresh-val');
+
+let pending = null;
+async function update() {
+  const t = parseFloat(thresh.value);
+  threshVal.textContent = t.toFixed(2);
+  const r = await apiPost('/api/calibrate', { threshold: t });
+  document.getElementById('m-tpr').textContent = fmtPct(r.tpr);
+  document.getElementById('m-fpr').textContent = fmtPct(r.fpr);
+  document.getElementById('m-bcases').textContent = r.benign_cases;
+  document.getElementById('m-bblocked').textContent = r.benign_blocked;
+
+  const tbody = document.querySelector('#per-dataset tbody');
+  tbody.innerHTML = r.per_dataset.map(row => `
+    <tr>
+      <td><code>${row.dataset}</code></td>
+      <td>${row.cases}</td>
+      <td>${row.detected}</td>
+      <td>${fmtPct(row.tpr)}</td>
+      <td>${row.mean_score.toFixed(2)}</td>
+      <td>${row.max_score.toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  drawChart(r.curve, t);
+}
+
+function drawChart(curve, currentT) {
+  const w = 600, h = 280, pad = 40;
+  const xs = curve.map(c => pad + c.threshold * (w - 2 * pad));
+  const yTPR = curve.map(c => h - pad - c.tpr * (h - 2 * pad));
+  const yFPR = curve.map(c => h - pad - c.fpr * (h - 2 * pad));
+  const pathTPR = curve.map((c, i) => `${i ? 'L' : 'M'}${xs[i]},${yTPR[i]}`).join(' ');
+  const pathFPR = curve.map((c, i) => `${i ? 'L' : 'M'}${xs[i]},${yFPR[i]}`).join(' ');
+  const cursorX = pad + currentT * (w - 2 * pad);
+
+  document.getElementById('chart').innerHTML = `
+    <line class="chart-axis" x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}"/>
+    <line class="chart-axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}"/>
+    <path class="chart-line tpr" d="${pathTPR}"/>
+    <path class="chart-line fpr" d="${pathFPR}"/>
+    <line class="chart-axis" x1="${cursorX}" y1="${pad}" x2="${cursorX}" y2="${h-pad}" stroke="#22d3ee" stroke-dasharray="3 3"/>
+    <text class="chart-label" x="${pad - 5}" y="${pad + 4}" text-anchor="end">1.0</text>
+    <text class="chart-label" x="${pad - 5}" y="${h - pad + 4}" text-anchor="end">0.0</text>
+    <text class="chart-label" x="${pad}" y="${h - pad + 16}">0</text>
+    <text class="chart-label" x="${w - pad}" y="${h - pad + 16}" text-anchor="end">threshold = 1.0</text>
+    <text class="chart-label" x="${w - pad - 10}" y="${pad + 14}" text-anchor="end" fill="#22d3ee">TPR</text>
+    <text class="chart-label" x="${w - pad - 10}" y="${pad + 28}" text-anchor="end" fill="#ef4444">FPR</text>
+  `;
+}
+
+thresh.addEventListener('input', () => {
+  threshVal.textContent = parseFloat(thresh.value).toFixed(2);
+  clearTimeout(pending);
+  pending = setTimeout(update, 80);
+});
+
+// Deep-linking: ?threshold=0.4
+(function applyDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const t = parseFloat(params.get('threshold'));
+  if (!Number.isNaN(t) && t >= 0 && t <= 1) {
+    thresh.value = t;
+    threshVal.textContent = t.toFixed(2);
+  }
+})();
+update();
+</script>
+
+{% endblock %}

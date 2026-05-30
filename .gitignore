@@ -26,3 +26,8 @@ evals/results/*
 
 # Agent reference outbox
 agents/reference/outbox.jsonl
+
+# Working / capture artifacts — never publish
+mitm_*.db
+*.sqlite
+ai-security-lab-analysis.docx

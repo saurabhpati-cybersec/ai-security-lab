@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block title %}Day walkthrough · ai-security-lab{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">14-day curriculum · day-00 → day-14</div>
+  <h1 style="font-size:34px">📚 Day-by-day walkthrough</h1>
+  <p class="sub">
+    Each day is interactive: read the brief, try the attack on the vulnerable agent, apply the protected
+    agent's defense stack, and mark the day complete when you understand it. Progress saves locally.
+  </p>
+</div>
+
+<div class="lab-grid">
+  <div class="lab-list" id="lab-list"></div>
+  <div class="lab-detail" id="lab-detail">
+    <div class="banner info">Pick a lab on the left to load its brief.</div>
+  </div>
+</div>
+
+<script type="module">
+import { apiGet, apiPost, renderTimeline, escapeHtml, toast } from '/static/js/app.js';
+import { renderDiagram } from '/static/js/diagram.js';
+
+const COMPLETE_KEY = 'aisl-completed-labs';
+const STEPS_KEY = 'aisl-completed-steps';
+let LABS = [];
+let currentIdx = 0;
+
+const completed = new Set(JSON.parse(localStorage.getItem(COMPLETE_KEY) || '[]'));
+function saveCompleted() {
+  localStorage.setItem(COMPLETE_KEY, JSON.stringify([...completed]));
+  document.dispatchEvent(new CustomEvent('aisl:progress-changed'));
+}
+
+function getStepState() {
+  try { return JSON.parse(localStorage.getItem(STEPS_KEY) || '{}'); } catch { return {}; }
+}
+function setStepState(state) { localStorage.setItem(STEPS_KEY, JSON.stringify(state)); }
+function isStepDone(slug, idx) {
+  const s = getStepState();
+  return !!(s[slug] && s[slug].includes(idx));
+}
+function toggleStep(slug, idx, on) {
+  const s = getStepState();
+  if (!s[slug]) s[slug] = [];
+  if (on && !s[slug].includes(idx)) s[slug].push(idx);
+  else if (!on) s[slug] = s[slug].filter(i => i !== idx);
+  setStepState(s);
+}
+
+const KIND_ICONS = {
+  read: '📖', run: '▶', compare: '⚖️', eval: '📊',
+  calibrate: '🎚️', settings: '⚙️', test: '🧪', reflect: '💭',
+};
+const KIND_LABEL = {
+  read: 'Read', run: 'Run', compare: 'Compare', eval: 'Eval',
+  calibrate: 'Calibrate', settings: 'Settings', test: 'Test', reflect: 'Reflect',
+};
+
+function renderStep(step, idx, slug) {
+  const done = isStepDone(slug, idx);
+  const icon = KIND_ICONS[step.kind] || '•';
+  const kindLabel = KIND_LABEL[step.kind] || step.kind;
+  const actionHTML = step.action
+    ? `<a class="btn" href="${step.action.href}">${step.action.label}</a>`
+    : '';
+  return `
+    <li class="step ${done ? 'done' : ''}">
+      <label class="step-check">
+        <input type="checkbox" data-step-idx="${idx}" ${done ? 'checked' : ''} />
+      </label>
+      <div class="step-body">
+        <div class="step-head">
+          <span class="step-icon">${icon}</span>
+          <span class="step-kind pill ${kindBadge(step.kind)}">${kindLabel}</span>
+          <span class="step-title">${escapeHtml(step.title)}</span>
+        </div>
+        <div class="step-text">${escapeHtml(step.body)}</div>
+        ${actionHTML ? `<div class="step-action">${actionHTML}</div>` : ''}
+      </div>
+    </li>
+  `;
+}
+
+function kindBadge(kind) {
+  if (kind === 'run' || kind === 'compare' || kind === 'eval') return 'cyan';
+  if (kind === 'calibrate' || kind === 'test') return 'cyan';
+  if (kind === 'read' || kind === 'reflect') return '';
+  if (kind === 'settings') return 'amber';
+  return '';
+}
+
+const DAY_BADGES = {
+  0: 'foundation', 1: 'foundation', 2: 'foundation',
+  3: 'attack', 4: 'attack', 5: 'attack', 6: 'attack', 7: 'attack',
+  8: 'defense', 9: 'defense', 10: 'defense', 11: 'defense',
+  12: 'capstone', 13: 'capstone', 14: 'capstone',
+};
+
+function dayNum(slug) {
+  const m = slug.match(/^day-(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+async function loadList() {
+  const data = await apiGet('/api/labs');
+  LABS = data.labs;
+  const wrap = document.getElementById('lab-list');
+  wrap.innerHTML = LABS.map((l, i) => {
+    const num = dayNum(l.slug);
+    const badge = DAY_BADGES[num] || 'foundation';
+    const title = l.title.replace(/^Day \d+ ?[—:-]? ?/, '');
+    const isDone = completed.has(l.slug);
+    return `
+      <div class="lab-item" data-idx="${i}" data-slug="${l.slug}">
+        <span>
+          <span class="day">${String(num).padStart(2,'0')}</span>
+          <span class="day-badge ${badge}" style="margin:0 6px;font-size:9px;padding:1px 6px;">${badge}</span>
+          ${escapeHtml(title)}
+        </span>
+        <span class="check" data-check="${l.slug}" style="${isDone ? '' : 'display:none'}">✓</span>
+      </div>
+    `;
+  }).join('');
+  wrap.querySelectorAll('.lab-item').forEach(el => {
+    el.onclick = () => loadLab(parseInt(el.dataset.idx, 10));
+  });
+  if (LABS.length) loadLab(0);
+}
+
+async function loadLab(idx) {
+  currentIdx = idx;
+  const lab = LABS[idx];
+  document.querySelectorAll('.lab-item').forEach(el =>
+    el.classList.toggle('active', parseInt(el.dataset.idx, 10) === idx)
+  );
+  const slug = lab.slug;
+  const num = dayNum(slug);
+  const badge = DAY_BADGES[num] || 'foundation';
+
+  const detail = document.getElementById('lab-detail');
+  detail.innerHTML = `<div class="skeleton block"></div><div class="skeleton line"></div><div class="skeleton line medium"></div>`;
+
+  const data = await apiGet(`/api/labs/${encodeURIComponent(slug)}`);
+
+  const hasExample = !!data.example_payload;
+  const isDone = completed.has(slug);
+  const prevDisabled = idx === 0 ? 'disabled' : '';
+  const nextDisabled = idx === LABS.length - 1 ? 'disabled' : '';
+
+  const steps = data.steps || [];
+
+  detail.innerHTML = `
+    <div class="nav-row">
+      <button class="btn secondary" id="prev-lab" ${prevDisabled}>← Prev</button>
+      <button class="btn secondary" id="next-lab" ${nextDisabled}>Next →</button>
+      <span class="spacer"></span>
+      <span class="day-badge ${badge}">${badge}</span>
+      <button class="btn ${isDone ? 'secondary' : ''}" id="toggle-complete">${isDone ? '↺ Mark incomplete' : '✓ Mark complete'}</button>
+    </div>
+
+    <h2 style="margin-top:0;font-family:var(--mono);font-size:24px;">${slug}</h2>
+
+    ${data.range_link ? `
+    <div class="range-chip">
+      <a href="${data.range_link.href}" class="chip-link">${data.range_link.label}</a>
+      <span class="chip-progress" data-category="${data.range_link.category}"></span>
+    </div>
+    ` : ''}
+
+    ${steps.length ? `
+      <h3 style="margin-top:18px;">📋 Steps for this lab (do these in the GUI)</h3>
+      <ol class="step-list">
+        ${steps.map((s, i) => renderStep(s, i, slug)).join('')}
+      </ol>
+    ` : ''}
+
+    ${hasExample ? `
+      <h3 style="margin-top:22px;">⚡ Quick actions</h3>
+      <div class="lab-actions">
+        <button class="btn" id="btn-compare">⚖️ Run on BOTH agents (compare)</button>
+        <button class="btn secondary" id="btn-attack">▶ Vulnerable only</button>
+        <button class="btn secondary" id="btn-defend">🛡 Protected only</button>
+        ${data.example_dataset ? `
+          <span class="spacer"></span>
+          <a class="btn ghost" href="/eval?dataset=${data.example_dataset}&agent=vulnerable">📊 Full eval (${data.example_dataset})</a>
+        ` : ''}
+      </div>
+    ` : ''}
+
+    <div id="lab-result"></div>
+
+    <details class="lab-readme" id="brief" style="margin-top:30px;">
+      <summary>📖 Full lab brief (CLI-flavoured reference — open if you want the original)</summary>
+      <div class="markdown" style="margin-top:14px;">${data.readme ? marked.parse(data.readme) : '<em>No README.md in this lab directory.</em>'}</div>
+      ${data.deliverable ? `<hr/><h3>Deliverable</h3><div class="markdown">${marked.parse(data.deliverable)}</div>` : ''}
+    </details>
+
+    <div class="nav-row" style="margin-top:24px;padding-top:18px;padding-bottom:0;border-bottom:none;border-top:1px solid var(--border);">
+      <button class="btn secondary" id="prev-lab-bot" ${prevDisabled}>← Prev</button>
+      <span class="spacer"></span>
+      <button class="btn" id="next-lab-bot" ${nextDisabled}>Next day →</button>
+    </div>
+  `;
+
+  // Populate range chip progress from localStorage
+  (function () {
+    const span = detail.querySelector('.range-chip .chip-progress');
+    if (!span) return;
+    const cat = span.dataset.category;
+    let cleared = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(`range:${cat}/L`)) {
+        try {
+          const v = JSON.parse(localStorage.getItem(k));
+          if (v && v.status === 'cleared') cleared++;
+        } catch (_e) {}
+      }
+    }
+    span.textContent = `🎯 Range: ${cleared}/4 cleared`;
+  })();
+
+  // Wire step checkboxes
+  detail.querySelectorAll('[data-step-idx]').forEach(el => {
+    el.addEventListener('change', () => {
+      const idx = parseInt(el.dataset.stepIdx, 10);
+      toggleStep(slug, idx, el.checked);
+    });
+  });
+
+  // In-page "#brief" anchors: open the collapsed details and scroll to it.
+  detail.querySelectorAll('a[href="#brief"]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const brief = document.getElementById('brief');
+      if (brief) {
+        brief.open = true;
+        brief.scrollIntoView({behavior: 'smooth', block: 'start'});
+      }
+    });
+  });
+
+  // Wire nav
+  const goPrev = () => idx > 0 && loadLab(idx - 1);
+  const goNext = () => idx < LABS.length - 1 && loadLab(idx + 1);
+  document.getElementById('prev-lab').onclick = goPrev;
+  document.getElementById('next-lab').onclick = goNext;
+  document.getElementById('prev-lab-bot').onclick = goPrev;
+  document.getElementById('next-lab-bot').onclick = goNext;
+  document.getElementById('toggle-complete').onclick = () => toggleComplete(slug);
+
+  if (hasExample) {
+    document.getElementById('btn-attack').onclick = () => runOne('vulnerable', data);
+    document.getElementById('btn-defend').onclick = () => runOne('protected', data);
+    document.getElementById('btn-compare').onclick = () => runBoth(data);
+  }
+
+  // Re-scan glossary triggers in fresh content.
+  import('/static/js/glossary.js').then(m => m.initGlossary(detail));
+}
+
+function toggleComplete(slug) {
+  if (completed.has(slug)) {
+    completed.delete(slug);
+    toast(`Marked <code>${slug}</code> incomplete`, 'info');
+  } else {
+    completed.add(slug);
+    toast(`✓ <code>${slug}</code> complete!`, 'success');
+  }
+  saveCompleted();
+  loadLab(currentIdx);  // re-render to update button label + check
+  const check = document.querySelector(`[data-check="${slug}"]`);
+  if (check) check.style.display = completed.has(slug) ? '' : 'none';
+}
+
+function verdictBanner(label, r) {
+  if (r.error) return `<div class="banner danger">Error · ${label} · ${escapeHtml(r.error)}</div>`;
+  const viols = r.events.filter(e => e.event_type === 'policy_violation').length;
+  if (viols) return `<div class="banner danger">⛔ ${label} blocked the request (${viols} policy violation${viols !== 1 ? 's' : ''})</div>`;
+  const hits = r.events.filter(e => e.event_type === 'detector_hit').length;
+  if (hits) return `<div class="banner warn">⚠ ${label} flagged ${hits} detector hit${hits !== 1 ? 's' : ''}</div>`;
+  return `<div class="banner success">✓ ${label} completed without policy violations</div>`;
+}
+
+function metricsRow(r) {
+  const hits = r.events.filter(e => e.event_type === 'detector_hit').length;
+  const viols = r.events.filter(e => e.event_type === 'policy_violation').length;
+  return `
+    <div class="metric-row" style="margin-bottom:10px;">
+      <div class="metric"><div class="label">Tool calls</div><div class="value">${r.tool_calls.length}</div></div>
+      <div class="metric"><div class="label">Detector hits</div><div class="value" style="color:#f59e0b">${hits}</div></div>
+      <div class="metric"><div class="label">Policy violations</div><div class="value" style="color:#ef4444">${viols}</div></div>
+    </div>
+  `;
+}
+
+async function runOne(agent, lab) {
+  const out = document.getElementById('lab-result');
+  out.innerHTML = `<div class="banner info"><span class="spinner"></span> Running ${agent} agent…</div>`;
+  try {
+    const r = await apiPost('/api/run-agent', { agent, input: lab.example_payload });
+    out.innerHTML = `
+      ${verdictBanner(agent, r)}
+      ${metricsRow(r)}
+      <h4>Trust-boundary diagram</h4>
+      <div class="diagram-wrap" id="lab-diag"></div>
+      <h4>Final response</h4>
+      <pre>${escapeHtml(r.response || '(no response)')}</pre>
+      <h4>Event timeline</h4>
+      ${renderTimeline(r.events)}
+    `;
+    if (!r.error) renderDiagram(document.getElementById('lab-diag'), r.events, agent);
+  } catch (e) {
+    out.innerHTML = `<div class="banner danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function runBoth(lab) {
+  const out = document.getElementById('lab-result');
+  out.innerHTML = `<div class="banner info"><span class="spinner"></span> Running both agents in parallel…</div>`;
+  try {
+    const [vR, pR] = await Promise.all([
+      apiPost('/api/run-agent', { agent: 'vulnerable', input: lab.example_payload }),
+      apiPost('/api/run-agent', { agent: 'protected', input: lab.example_payload }),
+    ]);
+
+    out.innerHTML = `
+      <div class="compare">
+        <div class="col">
+          <h3>Vulnerable</h3>
+          ${verdictBanner('vulnerable', vR)}
+          ${metricsRow(vR)}
+          <h4>Diagram</h4>
+          <div class="diagram-wrap" id="diag-vuln"></div>
+          <h4>Final response</h4>
+          <pre>${escapeHtml(vR.response || '(no response)')}</pre>
+        </div>
+        <div class="col">
+          <h3>Protected</h3>
+          ${verdictBanner('protected', pR)}
+          ${metricsRow(pR)}
+          <h4>Diagram</h4>
+          <div class="diagram-wrap" id="diag-prot"></div>
+          <h4>Final response</h4>
+          <pre>${escapeHtml(pR.response || '(no response)')}</pre>
+        </div>
+      </div>
+      <h4 style="margin-top:18px;">Combined event timeline</h4>
+      <div class="compare">
+        <div class="col"><h4 style="margin-top:0">vulnerable</h4>${renderTimeline(vR.events)}</div>
+        <div class="col"><h4 style="margin-top:0">protected</h4>${renderTimeline(pR.events)}</div>
+      </div>
+    `;
+    if (!vR.error) renderDiagram(document.getElementById('diag-vuln'), vR.events, 'vulnerable');
+    if (!pR.error) renderDiagram(document.getElementById('diag-prot'), pR.events, 'protected');
+  } catch (e) {
+    out.innerHTML = `<div class="banner danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+loadList();
+</script>
+
+{% endblock %}
