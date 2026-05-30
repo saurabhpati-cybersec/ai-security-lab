@@ -84,6 +84,34 @@ Each agent has three tools (defined once in `agents/reference/tools.py`):
 
 ---
 
+## Step 5b — (Recommended) Launch the GUI
+
+Zero-command launch:
+
+```bash
+./launch.sh             # Linux / macOS
+launch.bat              # Windows (double-click)
+```
+
+The launcher checks Python, installs missing dependencies the first time, starts the FastAPI server,
+and opens your browser at `http://localhost:8000`. Every feature is available from the UI — including
+**API key entry on the Settings page**, so you don't need to touch `.env` manually.
+
+| Page | Purpose |
+|---|---|
+| 🏠 Welcome | Headline ASR delta + jump-off into every feature |
+| 🥷 Attack playground | Send a payload to vulnerable + protected side-by-side; animated trust-boundary diagram |
+| 📊 Eval runner | Live per-case progress via Server-Sent Events |
+| 📁 Results history | Browse `evals/results/`, diff two runs |
+| 🎚️ Calibration | Drag the threshold, TPR/FPR curves update live (no API calls) |
+| 📚 Day walkthrough | Day 0 → Day 14: read brief, try attack, apply defense, mark complete |
+| 🧪 Tests | Run pytest from the UI, stream output |
+| ⚙️ Settings | Set Anthropic / OpenAI API keys, validate with a 1-token ping |
+
+The Calibration and Day-walkthrough (read-only) pages work offline. The other live-agent pages need an API key.
+
+---
+
 ## Step 6 — Run an Agent
 
 The reference agent is an abstract base — to actually launch a working agent, use vulnerable or protected:
@@ -121,6 +149,22 @@ Key metrics to watch:
 - **ASR (Attack Success Rate)** — lower is better for the protected agent
 - **TPR (True Positive Rate)** — how often the detector catches real attacks
 - **FPR (False Positive Rate)** — how often it flags benign inputs
+
+### Pruning stale eval runs
+
+Eval runs are stored under `evals/results/<run_id>/`. Old runs that
+errored out mid-flight (e.g. API quota errors) clutter the Results
+history page. To prune:
+
+```bash
+# Remove a specific run
+rm -rf evals/results/vulnerable_direct_injection_20260510T074045Z
+
+# Remove every run older than 30 days
+find evals/results -maxdepth 1 -mindepth 1 -type d -mtime +30 -exec rm -rf {} +
+```
+
+(`evals/results/` is `.gitignore`d, so pruning is purely local.)
 
 ---
 

@@ -74,7 +74,7 @@ async function loadRuns() {
       <td><strong>${r.asr == null ? (r.fpr == null ? 'N/A' : `FPR ${fmtPct(r.fpr)}`) : fmtPct(r.asr)}</strong></td>
       <td>${r.total}</td>
       <td class="passed">${r.passed}</td>
-      <td class="failed">${r.errors}</td>
+      <td class="failed" ${r.first_error ? `title="${r.first_error.replace(/"/g, '&quot;')}"` : ''}>${r.errors}${r.first_error ? ' ⓘ' : ''}</td>
       <td>${r.runtime_seconds.toFixed(1)}s</td>
     `;
     tr.onclick = () => { document.getElementById('inspect').value = r.run_id; inspectRun(r.run_id); };
