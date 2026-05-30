@@ -9,6 +9,7 @@ are converted from Anthropic format (``input_schema``) to OpenAI format
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from typing import Any
 
@@ -16,6 +17,8 @@ import openai
 from dotenv import load_dotenv
 
 from starter.python.log_schema import LogWriter, log_event, make_event
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["OpenAIAdapter"]
 
@@ -193,6 +196,10 @@ class OpenAIAdapter:
         # Convert tools from Anthropic format to OpenAI format.
         openai_tools = [_convert_tool(t) for t in tools] if tools else []
 
+        # Build the set of tool names we actually defined so we can filter out
+        # any provider pseudo-tools (e.g. OpenAI's multi_tool_use.parallel).
+        allowed_tool_names: frozenset[str] = frozenset(t["name"] for t in tools) if tools else frozenset()
+
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -201,6 +208,12 @@ class OpenAIAdapter:
         }
         if openai_tools:
             kwargs["tools"] = openai_tools
+            # Disable the OpenAI multi_tool_use.parallel pseudo-tool.  When
+            # parallel_tool_calls is True (the default), the model may emit a
+            # synthetic "multi_tool_use.parallel" tool call that we never
+            # defined.  Setting this to False prevents the server from offering
+            # that pseudo-tool in the first place.
+            kwargs["parallel_tool_calls"] = False
 
         response = self._client.chat.completions.create(**kwargs)
 
@@ -214,13 +227,24 @@ class OpenAIAdapter:
             import json
 
             for tc in message.tool_calls:
+                name = tc.function.name
+                # Second-layer defence: drop any tool call whose name is not in
+                # our declared tool set.  This guards against future provider
+                # oddness even if parallel_tool_calls is somehow re-enabled.
+                if allowed_tool_names and name not in allowed_tool_names:
+                    logger.warning(
+                        "Dropping unexpected tool call %r (not in allowed set %r)",
+                        name,
+                        allowed_tool_names,
+                    )
+                    continue
                 try:
                     args = json.loads(tc.function.arguments)
                 except (json.JSONDecodeError, ValueError) as exc:
                     raise RuntimeError(
-                        f"OpenAI returned invalid JSON for tool '{tc.function.name}': {exc}"
+                        f"OpenAI returned invalid JSON for tool '{name}': {exc}"
                     ) from exc
-                tool_calls.append({"name": tc.function.name, "input": args})
+                tool_calls.append({"name": name, "input": args})
 
         self._step += 1
         return text_content, tool_calls
