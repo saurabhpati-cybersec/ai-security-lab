@@ -95,9 +95,10 @@ async def helper_ask(req: HelperAskRequest) -> StreamingResponse:
             )
             return
 
-        # 1. Retrieve
+        # 1. Retrieve — k=20 so rare-but-focused chunks (e.g. individual glossary
+        # terms) surface even when many broadly-matching lab chunks exist.
         query_text = (req.question + " " + (req.selection or "")).strip()
-        ranked = _retriever.top_k(query_text, k=5, floor=0.5)
+        ranked = _retriever.top_k(query_text, k=20, floor=0.5)
         chunks = [c for c, _ in ranked]
 
         # 2. Citations event (always — even if empty)

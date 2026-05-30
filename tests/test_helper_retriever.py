@@ -61,3 +61,22 @@ def test_top_k_over_real_corpus_finds_threat_model():
     assert any("threat-model" in p for p in top_paths), (
         f"expected threat-model.md in top-5, got {top_paths}"
     )
+
+
+def test_retriever_finds_asr_glossary_entry():
+    """Regression: a short acronym query like 'What is ASR?' must surface the
+    glossary entry. Previously the whole glossary was one chunk and the term
+    score was diluted below the BM25 floor (0.5).
+
+    We use k=20 (matching the API) because many lab README files also mention
+    ASR in passing and rank above the focused glossary chunk with k=5.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    corpus = load_corpus(repo_root)
+    ret = BM25Retriever(corpus)
+    hits = ret.top_k("What is ASR?", k=20, floor=0.5)
+    # At least one hit must come from the glossary and mention ASR.
+    glossary_hits = [c for c, _ in hits if "glossary" in c.path.lower()]
+    assert glossary_hits, f"No glossary hits; got {[(c.path, c.heading) for c, _ in hits]}"
+    asr_hit = [c for c in glossary_hits if "asr" in c.heading.lower() or "attack success" in c.heading.lower()]
+    assert asr_hit, f"Glossary hits did not include the ASR entry; headings: {[c.heading for c in glossary_hits]}"
