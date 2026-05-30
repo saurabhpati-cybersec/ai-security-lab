@@ -170,8 +170,10 @@ async def page_docs(request: Request) -> HTMLResponse:
 
 @app.get("/docs/{slug}", response_class=HTMLResponse)
 async def page_doc(request: Request, slug: str) -> HTMLResponse:
+    # /docs/tutorial has its own sidebar entry; all other doc pages map to "docs".
+    page = "tutorial" if slug == "tutorial" else "docs"
     return templates.TemplateResponse(
-        request, "docs_view.html", _ctx(request, "docs", slug=slug)
+        request, "docs_view.html", _ctx(request, page, slug=slug)
     )
 
 
