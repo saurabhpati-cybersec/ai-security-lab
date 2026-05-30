@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -36,21 +38,26 @@ from webapp.api import summary as summary_api  # noqa: E402
 from webapp.api import tests as tests_api  # noqa: E402
 from webapp.api import range as range_api  # noqa: E402, A004
 
-app = FastAPI(title="ai-security-lab", docs_url="/api/swagger", redoc_url="/api/redoc")
 
-
-@app.on_event("startup")
-async def _build_helper_index() -> None:
-    """Build the BM25 index over docs/labs at server start.
-
-    Cheap (~50 ms for ~150 markdown files), so we do it eagerly rather than
-    on-demand. Re-run by restarting the server.
-    """
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Lifespan handler: build BM25 index on startup."""
     from webapp.helper.corpus import load_corpus
     from webapp.helper.retriever import BM25Retriever
 
+    # Cheap (~50 ms for ~150 markdown files), so we do it eagerly rather than
+    # on-demand. Re-run by restarting the server.
     chunks = load_corpus(REPO_ROOT)
     helper_api.init_retriever(BM25Retriever(chunks))
+    yield
+
+
+app = FastAPI(
+    title="ai-security-lab",
+    docs_url="/api/swagger",
+    redoc_url="/api/redoc",
+    lifespan=lifespan,
+)
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
