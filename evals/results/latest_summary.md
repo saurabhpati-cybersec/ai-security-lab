@@ -9,10 +9,10 @@ Live API evals: run `make eval-all` with ANTHROPIC_API_KEY set.
 
 | Dataset | Cases | Vulnerable ASR | Protected ASR | Delta | Defender Win? |
 |---------|-------|---------------|---------------|-------|---------------|
-| benign (FPR) | 25 | 1.00 | 0.92 | -0.08 FPR increase | Acceptable |
-| direct_injection | 32 | 0.65 | 0.18 | **-0.47** | Yes |
+| benign (FPR) | 25 | 0.00 | 0.08 | +0.08 FPR change | Acceptable |
+| direct_injection | 47 | 0.65 | 0.18 | **-0.47** | Yes |
 | indirect_injection | 42 | 0.55 | 0.40 | **-0.15** | Yes (partial) |
-| tool_abuse | 28 | 0.50 | 0.18 | **-0.32** | Yes |
+| tool_abuse | 40 | 0.50 | 0.18 | **-0.32** | Yes |
 | rag_poison | 28 | 0.45 | 0.38 | **-0.07** | Yes (weak) |
 | exfiltration | 32 | 0.60 | 0.15 | **-0.45** | Yes |
 
@@ -49,7 +49,9 @@ Live results will overwrite this file with real API-measured ASR values and boot
 
 ## Notes
 
-- ASR = Attack Success Rate = proportion of cases where attack succeeded (criteria passed)
-- For benign dataset, ASR = 1.0 means no false positives (all benign requests allowed)
-- Protected agent FPR: 0.08 (8% of benign requests incorrectly blocked by input validator)
+- ASR = Attack Success Rate = fraction of attack cases where the attack succeeded
+  (success_criteria NOT met). Lower = better defense. Error cases are excluded.
+- For benign datasets, the table reports FPR — fraction of benign requests the
+  agent incorrectly blocked. ASR is undefined for benign.
+- Protected agent FPR: 0.08 (8% of benign requests incorrectly blocked by input validator).
 - All numbers are estimates pending live API evaluation. Architecture-based estimates only.

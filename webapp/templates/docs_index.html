@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Docs · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">reference</div>
+  <h1 style="font-size:34px">📚 Docs</h1>
+  <p class="sub">
+    The full reference material for the lab. Threat model, glossary, checklists, references — everything
+    you need to look up a definition or copy a checklist into your write-up.
+  </p>
+</div>
+
+<div class="cta-row" id="docs-grid"></div>
+
+<script type="module">
+import { apiGet } from '/static/js/app.js';
+
+async function load() {
+  const r = await apiGet('/api/docs');
+  document.getElementById('docs-grid').innerHTML = r.docs.map(d => `
+    <a href="/docs/${d.slug}" class="cta">
+      <div class="badge">reference</div>
+      <h3>${d.title}</h3>
+      <p>${d.description}</p>
+    </a>
+  `).join('');
+}
+load();
+</script>
+
+{% endblock %}

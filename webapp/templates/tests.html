@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Tests · ai-security-lab{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="tagline">smoketest · no API key required</div>
+  <h1 style="font-size:34px">🧪 Tests</h1>
+  <p class="sub">
+    Run the pytest suite in <code>tests/</code> from here. Confirms detectors, scorers, message conversion,
+    base64 decode-and-rescan, and compound criteria all wire up correctly. ~2 seconds.
+  </p>
+</div>
+
+<div class="row">
+  <button id="start-btn" class="btn">▶ Run tests</button>
+  <span id="status" class="muted"></span>
+</div>
+
+<div id="summary" style="margin-top:14px;"></div>
+
+<h3 style="margin-top:18px;">Output</h3>
+<div class="test-output" id="output">(idle)</div>
+
+<script type="module">
+import { apiPost } from '/static/js/app.js';
+
+document.getElementById('start-btn').onclick = async () => {
+  const out = document.getElementById('output');
+  const status = document.getElementById('status');
+  const summary = document.getElementById('summary');
+  out.textContent = '';
+  status.innerHTML = '<span class="spinner"></span> Starting…';
+  summary.innerHTML = '';
+
+  const r = await apiPost('/api/tests/start', {});
+  const es = new EventSource(`/api/tests/${r.job_id}/stream`);
+
+  let lines = 0;
+  let lastResultLine = '';
+  es.addEventListener('line', (e) => {
+    const text = JSON.parse(e.data).text;
+    lines++;
+    let html = text;
+    if (text.includes('PASSED')) html = `<span class="test-pass">${text}</span>`;
+    else if (text.includes('FAILED') || text.includes('ERROR')) html = `<span class="test-fail">${text}</span>`;
+    out.innerHTML += html + '\n';
+    out.scrollTop = out.scrollHeight;
+    if (/passed|failed/.test(text) && /=+\s*[\d\w ]+\s*=+/.test(text)) lastResultLine = text;
+    status.innerHTML = `<span class="spinner"></span> ${lines} lines…`;
+  });
+  es.addEventListener('done', (e) => {
+    es.close();
+    const code = JSON.parse(e.data).exit_code;
+    const ok = code === 0;
+    status.innerHTML = ok ? '<span style="color:var(--green)">✓ all tests passed</span>' : `<span style="color:var(--red)">✗ pytest exit ${code}</span>`;
+    summary.innerHTML = ok
+      ? `<div class="banner success">${lastResultLine || 'pytest completed successfully'}</div>`
+      : `<div class="banner danger">${lastResultLine || `pytest exited with code ${code}`}</div>`;
+  });
+  es.addEventListener('error', (e) => {
+    es.close();
+    status.innerHTML = `<span style="color:var(--red)">connection error</span>`;
+  });
+};
+</script>
+
+{% endblock %}

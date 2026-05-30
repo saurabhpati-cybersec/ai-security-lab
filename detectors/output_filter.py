@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from starter.python.secrets_config import secret_regexes
+
 
 @dataclass
 class FilterResult:
@@ -18,12 +20,9 @@ class FilterResult:
     was_modified: bool
 
 
-# Patterns for fake secrets in the corpus (for lab purposes — real secrets need vault integration)
-SECRET_PATTERNS = [
-    r"AKIAIOSFODNN7EXAMPLE",
-    r"xoxb-\d+-\d+-[A-Za-z0-9]+",
-    r"db-dev-password-example-not-real",
-]
+# Backwards-compatibility alias — the actual patterns are loaded from
+# starter/configs/secrets.yaml via starter.python.secrets_config.
+SECRET_PATTERNS = list(secret_regexes())
 
 # Allowlisted domains (no exfil to these)
 DEFAULT_ALLOWLIST = {
@@ -44,7 +43,8 @@ class OutputFilter:
         self._image_pattern = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
         self._link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
         self._url_pattern = re.compile(r"https?://([^/\s?#]+)")
-        self._secret_patterns = [re.compile(p) for p in SECRET_PATTERNS]
+        # Reload from the shared config so updates to secrets.yaml take effect.
+        self._secret_patterns = [re.compile(p) for p in secret_regexes()]
 
     def _is_allowed_url(self, url: str) -> bool:
         match = self._url_pattern.search(url)

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ slug }} · ai-security-lab docs{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+{% endblock %}
+{% block content %}
+
+<div class="row" style="margin-bottom:14px;">
+  <a href="/docs" class="btn secondary">← All docs</a>
+</div>
+
+<div id="doc-shell">
+  <div class="skeleton block"></div>
+  <div class="skeleton line"></div>
+  <div class="skeleton line medium"></div>
+  <div class="skeleton line short"></div>
+</div>
+
+<script type="module">
+import { apiGet, escapeHtml } from '/static/js/app.js';
+
+const slug = {{ slug | tojson }};
+const shell = document.getElementById('doc-shell');
+
+async function load() {
+  try {
+    const doc = await apiGet(`/api/docs/${encodeURIComponent(slug)}`);
+    shell.innerHTML = `
+      <div class="hero">
+        <div class="tagline">docs · ${escapeHtml(slug)}.md</div>
+        <h1 style="font-size:32px">${doc.title}</h1>
+        <p class="sub">${doc.description}</p>
+      </div>
+      <div class="lab-detail">
+        <div class="markdown">${marked.parse(doc.content)}</div>
+      </div>
+    `;
+  } catch (e) {
+    shell.innerHTML = `<div class="banner danger">Could not load <code>${escapeHtml(slug)}</code>: ${escapeHtml(e.message)}</div>`;
+  }
+}
+load();
+</script>
+
+{% endblock %}
